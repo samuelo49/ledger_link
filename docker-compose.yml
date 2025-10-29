@@ -1,0 +1,194 @@
+version: "3.9"
+
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/api-gateway.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      - identity-service
+      - wallet-service
+      - payments-service
+      - risk-service
+      - redis
+    networks:
+      - fintech
+
+  identity-service:
+    build:
+      context: .
+      dockerfile: docker/identity-service.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      identity-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8001:8000"
+    networks:
+      - fintech
+
+  wallet-service:
+    build:
+      context: .
+      dockerfile: docker/wallet-service.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      wallet-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8002:8000"
+    networks:
+      - fintech
+
+  payments-service:
+    build:
+      context: .
+      dockerfile: docker/payments-service.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      payments-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8003:8000"
+    networks:
+      - fintech
+
+  risk-service:
+    build:
+      context: .
+      dockerfile: docker/risk-service.Dockerfile
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      risk-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8004:8000"
+    networks:
+      - fintech
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - fintech
+
+  identity-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: identity_db
+      POSTGRES_USER: identity_user
+      POSTGRES_PASSWORD: identity_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fintech
+
+  wallet-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: wallet_db
+      POSTGRES_USER: wallet_user
+      POSTGRES_PASSWORD: wallet_password
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fintech
+
+  payments-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments_db
+      POSTGRES_USER: payments_user
+      POSTGRES_PASSWORD: payments_password
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fintech
+
+  risk-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: risk_db
+      POSTGRES_USER: risk_user
+      POSTGRES_PASSWORD: risk_password
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fintech
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    networks:
+      - fintech
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - fintech
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3000:3000"
+    networks:
+      - fintech
+
+networks:
+  fintech:
+    driver: bridge

@@ -1,0 +1,22 @@
+[project]
+name = "api-gateway"
+version = "0.1.0"
+description = "API gateway for fintech practice stack"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "redis",
+    "pydantic",
+    "pydantic-settings",
+    "pyjwt[crypto]",
+    "prometheus-client",
+    "opentelemetry-instrumentation-fastapi",
+    "opentelemetry-sdk",
+    "tenacity",
+    "loguru"
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

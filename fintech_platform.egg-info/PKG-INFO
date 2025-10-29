@@ -1,0 +1,39 @@
+Metadata-Version: 2.4
+Name: fintech-platform
+Version: 0.1.0
+Summary: Multi-service FastAPI fintech practice stack
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.110.0
+Requires-Dist: uvicorn[standard]>=0.27.0
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: alembic>=1.13.0
+Requires-Dist: asyncpg>=0.29.0
+Requires-Dist: pydantic>=2.6.0
+Requires-Dist: pydantic-settings>=2.1.0
+Requires-Dist: python-jose[cryptography]>=3.3.0
+Requires-Dist: passlib[bcrypt]>=1.7.4
+Requires-Dist: redis>=5.0.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: loguru>=0.7.2
+Requires-Dist: prometheus-client>=0.19.0
+Requires-Dist: opentelemetry-sdk>=1.22.0
+Requires-Dist: opentelemetry-exporter-otlp>=1.22.0
+Requires-Dist: opentelemetry-instrumentation-fastapi>=0.43b0
+Requires-Dist: uvloop>=0.19.0; sys_platform != "win32"
+Requires-Dist: tenacity>=8.2.2
+Requires-Dist: pyjwt[crypto]>=2.8.0
+Requires-Dist: python-multipart>=0.0.7
+Requires-Dist: bcrypt>=4.1.2
+Provides-Extra: dev
+Requires-Dist: ruff>=0.3.0; extra == "dev"
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: coverage[toml]>=7.4.0; extra == "dev"
+Requires-Dist: httpx>=0.27.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"
+Requires-Dist: faker>=19.0.0; extra == "dev"
+Requires-Dist: locust>=2.20.0; extra == "dev"
+Requires-Dist: mypy>=1.8.0; extra == "dev"
+Requires-Dist: types-redis>=4.6.0.20240218; extra == "dev"
+Requires-Dist: types-passlib>=1.7.7.20240220; extra == "dev"
+Requires-Dist: types-python-jose>=3.3.4.20240106; extra == "dev"

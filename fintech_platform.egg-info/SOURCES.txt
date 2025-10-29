@@ -1,0 +1,7 @@
+README.md
+pyproject.toml
+fintech_platform.egg-info/PKG-INFO
+fintech_platform.egg-info/SOURCES.txt
+fintech_platform.egg-info/dependency_links.txt
+fintech_platform.egg-info/requires.txt
+fintech_platform.egg-info/top_level.txt
