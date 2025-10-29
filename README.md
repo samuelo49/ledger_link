@@ -1,106 +1,102 @@
-# Fintech Platform Practice Stack
+# LedgerLink
 
-An accelerated three-day project to practice building and consuming production-grade backend APIs with FastAPI, Postgres, Redis, and observability tooling. The stack simulates a multi-service fintech payments platform with identity, wallet, payments, and risk domains routed via an API gateway.
-
-## Goals
-- Exercise senior-level backend skills: auth, rate limiting, distributed transactions, observability, and deployment practices.
-- Use real Postgres databases per service, Redis for messaging, and containerized dependencies to mirror production workflows.
-- Produce documentation (ADRs, runbooks, diagrams) alongside tests and automation to discuss confidently in interviews.
-
-## High-Level Services
-- `api_gateway`: ingress, routing, rate limiting, observability.
-- `identity_service`: OAuth2/JWT, RBAC, session management.
-- `wallet_service`: double-entry ledger, wallet operations.
-- `payments_service`: payment intents, webhooks, orchestration.
-- `risk_service`: rules engine, case management.
-- `libs/shared`: shared Pydantic schemas, middleware, and utilities.
-
-## Development Workflow
-1. Ensure Docker and Docker Compose are available.
-2. Copy `.env.example` to `.env` and adjust secrets.
-3. Run `make bootstrap` to set up virtual environments and pre-commit hooks.
-4. Start the stack with `make up`; access services via the gateway.
-5. Use `make test` for the full test suite and `make lint` before commits.
-
-Detailed milestones and learning notes live in `docs/` and ADRs in `adr/`.
-
-## Next Steps
-Day 1 focuses on scaffolding, ADRs, identity service foundations, and gateway rate limiting. Progress is tracked in `docs/daily-notes`.
-
-# Fintech Platform Practice Stack
-
-A multi-service FastAPI platform simulating a fintech payments ecosystem with production-ready architecture — complete with Postgres databases, Redis messaging, observability, and containerized workflows.  
-This stack serves as both a **learning lab** and a **portfolio-grade project** for mastering backend system design, service orchestration, and deployment patterns.
+LedgerLink is a modular, cloud-native fintech backend built with FastAPI, PostgreSQL, and Redis — designed to power secure payment flows, digital wallets, and risk analytics across distributed services.
 
 ---
 
-## 🧩 Core Services
-| Service | Purpose |
-|----------|----------|
-| **api_gateway** | Entry point for all requests — handles ingress, routing, rate limiting, and observability. |
-| **identity_service** | OAuth2/JWT authentication, RBAC, session management, and user identity. |
-| **wallet_service** | Double-entry ledger, wallet operations, and balance tracking. |
-| **payments_service** | Payment intents, webhooks, orchestration, and transaction workflows. |
-| **risk_service** | Rules engine, scoring, and case management for fraud and compliance. |
-| **libs/shared** | Shared Pydantic schemas, middleware, and core utilities used across services. |
+## 🧩 Core Domains
+| Service | Description |
+|----------|--------------|
+| **API Gateway** | Ingress and routing layer handling request aggregation, rate limiting, and observability. |
+| **Identity Service** | OAuth2/JWT authentication, RBAC, and session management. |
+| **Wallet Service** | Double-entry ledger and wallet operations with transaction integrity. |
+| **Payments Service** | Payment intent lifecycle, orchestration, and webhook handling. |
+| **Risk Service** | Rules engine and risk scoring for fraud detection and compliance. |
+| **Shared Library** | Common Pydantic schemas, middleware, and utilities across all services. |
 
 ---
 
-## 🏗️ Development Workflow
+## 🧱 Architecture Overview
+- **Language:** Python (FastAPI)
+- **Databases:** PostgreSQL per service (via AWS RDS)
+- **Cache & Queue:** Redis (AWS ElastiCache)
+- **Containerization:** Docker & Docker Compose
+- **Deployment:** AWS ECS Fargate + ECR
+- **Observability:** OpenTelemetry, Prometheus, Grafana, Jaeger, CloudWatch
 
-1. **Prerequisites**
-   - Install **Docker** and **Docker Compose**.
-   - Copy `.env.example` to `.env` and configure secrets.
-
-2. **Bootstrap dependencies**
-   ```bash
-   make bootstrap
-   ```
-   This creates a `.venv`, installs dependencies using `uv`, and links all workspace packages.
-
-3. **Start the platform**
-   ```bash
-   make up
-   ```
-   Launches all services (API gateway, databases, Redis, observability stack).
-
-4. **Run tests and lint**
-   ```bash
-   make test
-   make lint
-   ```
+Each domain runs independently and communicates through internal APIs, promoting scalability and fault isolation.
 
 ---
 
-## 🧠 Observability Stack
-- **Prometheus** for metrics.
-- **Grafana** for dashboards.
-- **Jaeger** for distributed tracing.
-- Built-in OpenTelemetry instrumentation for FastAPI services.
+## 🚀 Local Development
+
+```bash
+# Bootstrap environment and dependencies
+make bootstrap
+
+# Start all services and dependencies
+make up
+
+# Run tests
+make test
+```
+
+Access the API Gateway at: [http://localhost:8080/docs](http://localhost:8080/docs)
 
 ---
 
-## 🧱 Architecture Highlights
-- Fully containerized with Docker Compose.
-- Workspace managed by **uv** and `setuptools`.
-- Independent **service Dockerfiles** leveraging `uv.lock` for reproducible builds.
-- PostgreSQL per service for realistic data isolation.
-- Shared Redis instance for caching and inter-service communication.
+## 📊 Observability Stack
+- **Prometheus** → Metrics collection  
+- **Grafana** → Dashboards  
+- **Jaeger** → Distributed tracing  
+- **OpenTelemetry** → Service instrumentation  
+
+---
+
+## 🌩️ AWS Deployment (in progress)
+- Each service containerized and deployed via **AWS ECS Fargate**
+- Images hosted in **ECR**
+- Databases in **RDS PostgreSQL**
+- Redis via **ElastiCache**
+- CI/CD pipeline via **GitHub Actions** → ECR → ECS
 
 ---
 
 ## 📘 Documentation
-- **ADRs** (Architecture Decision Records): `adr/`
-- **Runbooks, diagrams, and notes**: `docs/`
-- **Daily progress**: `docs/daily-notes/`
+Detailed architecture notes, ADRs, and operational runbooks are available in the `/docs` directory.
 
 ---
 
-## 🚀 Next Steps
-- Extend the **identity** and **wallet** services to perform real distributed transactions.
-- Add async event processing or background jobs with Redis streams or Celery.
-- Deploy to **Azure Container Apps** or **AWS ECS Fargate** for cloud deployment practice.
+> _LedgerLink showcases clean service boundaries, strong observability, and scalable backend engineering on AWS._
 
 ---
 
-> 💡 _This project is designed for senior-level backend practice — showcasing architecture, observability, and maintainable service design._
+# LedgerLink Developer Notes
+
+> Internal engineering notes and daily learnings — not for public release.
+
+## 🧩 Current Focus
+- [ ] Finalize JWT and refresh token flow in `identity_service`
+- [ ] Add metrics endpoints to all services
+- [ ] Configure ECS task definitions for deployment
+
+## 🧠 Lessons / Insights
+- Observability setup with OTEL + Jaeger needs explicit exporter config per container.
+- Docker build caching improved by copying `uv.lock` before source code.
+- ECS Fargate task definitions benefit from explicit CPU/memory reservations per service.
+
+## 📅 Daily / Weekly Logs
+### Day 1
+- Set up initial FastAPI skeletons for services.
+- Created unified `docker-compose.yml`.
+
+### Day 2
+- Added Prometheus and Grafana setup.
+- Fixed `uv sync` issue in Dockerfiles.
+
+...
+
+## 🧰 Future Improvements
+- Async background workers (Celery or FastAPI BackgroundTasks)
+- Global error handler middleware
+- Implement correlation IDs in logs

@@ -12,3 +12,6 @@ build/
 .env
 *.log
 *.sqlite3
+
+# Ignore internal documentation
+docs/internal/
