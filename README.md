@@ -1,6 +1,33 @@
 # LedgerLink
 
-LedgerLink is a modular, cloud-native fintech backend built with FastAPI, PostgreSQL, and Redis — designed to power secure payment flows, digital wallets, and risk analytics across distributed services.
+<div align="center">
+
+LedgerLink is a modular, cloud‑native fintech backend built with FastAPI, PostgreSQL, and Redis — designed to power secure payment flows, digital wallets, and risk analytics across distributed services.
+
+<br/>
+
+<!-- Badges: tech & tooling -->
+<img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" />
+<img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.x-009688?logo=fastapi&logoColor=white" />
+<img alt="SQLAlchemy" src="https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?logo=sqlalchemy&logoColor=white" />
+<img alt="Alembic" src="https://img.shields.io/badge/Alembic-migrations-6C757D" />
+<img alt="Pydantic" src="https://img.shields.io/badge/Pydantic-v2-027DFD?logo=pydantic&logoColor=white" />
+<img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" />
+<img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white" />
+<img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" />
+<img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub%20Actions-CI/CD-2088FF?logo=githubactions&logoColor=white" />
+<img alt="OpenTelemetry" src="https://img.shields.io/badge/OpenTelemetry-tracing-683D87?logo=opentelemetry&logoColor=white" />
+<img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white" />
+<img alt="Grafana" src="https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white" />
+<img alt="Jaeger" src="https://img.shields.io/badge/Jaeger-traces-ED772D?logo=jaeger&logoColor=white" />
+<img alt="Postman" src="https://img.shields.io/badge/Postman-E2E%20tests-FF6C37?logo=postman&logoColor=white" />
+<img alt="Marp" src="https://img.shields.io/badge/Marp-slides-28A9E0?logo=markdown&logoColor=white" />
+
+<br/>
+
+<b>Microservices • Async Python • JWT Auth • Observability‑first • CI‑backed E2E</b>
+
+</div>
 
 ---
 
@@ -16,7 +43,29 @@ LedgerLink is a modular, cloud-native fintech backend built with FastAPI, Postgr
 
 ---
 
-## 🧱 Architecture Overview
+## � Tech Stack (at a glance)
+
+- Languages & Runtimes: Python 3.11+, asyncio
+- Frameworks: FastAPI, Pydantic v2
+- Data & Migrations: PostgreSQL 16, SQLAlchemy 2.x, Alembic
+- Caching/Queue: Redis 7 (ElastiCache‑ready)
+- Auth & Security: OAuth2/JWT (python‑jose HS256), Passlib[bcrypt]
+- Packaging & Build: Docker & Compose, Astral uv (uv.lock)
+- CI/CD: GitHub Actions (Newman E2E, Marp slide export)
+- Observability: OpenTelemetry, Prometheus, Grafana, Jaeger
+- API & Testing: OpenAPI/Swagger, Postman/Newman, pytest (planned)
+- Docs & DX: ADRs, diagrams (Excalidraw+SVG), slides (Marp), runbooks
+
+Quick links:
+- Architecture: `docs/architecture/`
+- Postman collections: `docs/postman/`
+- Slides: `docs/slides/`
+- Runbooks: `docs/runbooks/`
+- ADRs: `adr/`
+
+---
+
+## �🧱 Architecture Overview
 - **Language:** Python (FastAPI)
 - **Databases:** PostgreSQL per service (via AWS RDS)
 - **Cache & Queue:** Redis (AWS ElastiCache)
@@ -68,6 +117,11 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 ---
 
 > _LedgerLink showcases clean service boundaries, strong observability, and scalable backend engineering on AWS._
+
+---
+
+<!-- SEO friendly keyword block (human‑readable) -->
+> Keywords: FastAPI microservices, Python asyncio, SQLAlchemy 2, Alembic migrations, PostgreSQL, Redis, OAuth2, JWT, JOSE, bcrypt, Docker Compose, AWS ECS ECR RDS ElastiCache, GitHub Actions CI/CD, OpenTelemetry, Prometheus, Grafana, Jaeger, Postman Newman, fintech payments, digital wallet, risk scoring, API gateway.
 
 ---
 
