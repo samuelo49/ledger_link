@@ -12,6 +12,8 @@ class GatewaySettings(BaseSettings):
     secret_key: str = "changeme"
     requests_per_minute: int = 120
     rate_limit_window_seconds: int = 60
+    # Upstream identity service base URL (inside the Docker network by default)
+    identity_base_url: str = "http://identity-service:8000/api/v1"
 
 
 @lru_cache
