@@ -1,0 +1,161 @@
+{
+  "info": {
+    "name": "Identity Service (Extended)",
+    "_postman_id": "1a2b3c4d-extended-identity",
+    "description": "Extended Postman collection for Identity: register, token, refresh, me, verification, password reset, and lockout demo.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/healthz", "host": ["{{baseUrl}}"], "path": ["healthz"] } },
+      "event": [{ "listen": "test", "script": { "exec": ["pm.response.to.have.status(200);"] } }]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth","register"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Created (201) or Already Exists (409)', function () { pm.expect([201,409]).to.include(pm.response.code); });"
+          ] } }]
+        },
+        {
+          "name": "Token (login)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/token", "host": ["{{baseUrl}}"], "path": ["auth","token"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.response.to.have.status(200);",
+            "const data = pm.response.json();",
+            "pm.environment.set('access_token', data.access_token);",
+            "pm.environment.set('refresh_token', data.refresh_token);"
+          ] } }]
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth","refresh"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.response.to.have.status(200);",
+            "const data = pm.response.json();",
+            "pm.environment.set('access_token', data.access_token);",
+            "pm.environment.set('refresh_token', data.refresh_token);"
+          ] } }]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth","me"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.response.to.have.status(200);"] } }]
+        }
+      ]
+    },
+    {
+      "name": "Verification",
+      "item": [
+        {
+          "name": "Request verification token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/verification/request", "host": ["{{baseUrl}}"], "path": ["auth","verification","request"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.response.to.have.status(202);",
+            "const data = pm.response.json();",
+            "pm.environment.set('verification_token', data.verification_token);"
+          ] } }]
+        },
+        {
+          "name": "Confirm verification",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{verification_token}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/verification/confirm", "host": ["{{baseUrl}}"], "path": ["auth","verification","confirm"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.response.to.have.status(200);"] } }]
+        }
+      ]
+    },
+    {
+      "name": "Password Reset",
+      "item": [
+        {
+          "name": "Request password reset",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/password-reset/request", "host": ["{{baseUrl}}"], "path": ["auth","password-reset","request"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.response.to.have.status(202);",
+            "const data = pm.response.json();",
+            "pm.environment.set('password_reset_token', data.password_reset_token);"
+          ] } }]
+        },
+        {
+          "name": "Confirm password reset",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{password_reset_token}}\",\n  \"new_password\": \"{{new_password}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/password-reset/confirm", "host": ["{{baseUrl}}"], "path": ["auth","password-reset","confirm"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.response.to.have.status(204);"] } }]
+        },
+        {
+          "name": "Token (login after reset)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{new_password}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/auth/token", "host": ["{{baseUrl}}"], "path": ["auth","token"] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.response.to.have.status(200);",
+            "const data = pm.response.json();",
+            "pm.environment.set('access_token', data.access_token);"
+          ] } }]
+        }
+      ]
+    },
+    {
+      "name": "Lockout Demo",
+      "item": [
+        {
+          "name": "Bad login 1",
+          "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} },
+          "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(401);"]}}]
+        },
+        { "name": "Bad login 2", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} }, "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(401);"]}}] },
+        { "name": "Bad login 3", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} }, "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(401);"]}}] },
+        { "name": "Bad login 4", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} }, "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(401);"]}}] },
+        { "name": "Bad login 5", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} }, "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(401);"]}}] },
+        { "name": "Locked login (expect 403)", "request": { "method": "POST", "header": [{"key":"Content-Type","value":"application/json"}], "body": {"mode":"raw", "raw":"{\n  \"email\": \"{{email}}\",\n  \"password\": \"Wrong!\"\n}" }, "url": {"raw":"{{baseUrl}}/auth/token","host":["{{baseUrl}}"],"path":["auth","token"]} }, "event": [{"listen":"test","script":{"exec":["pm.response.to.have.status(403);"]}}] }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8001/api/v1" }
+  ]
+}
