@@ -1,0 +1,130 @@
+name: Test Identity Service API (Postman)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - 'services/identity_service/**'
+      - 'docs/postman/**'
+      - 'docker-compose.yml'
+
+jobs:
+  direct_base:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Newman
+        run: npm install -g newman
+
+      - name: Start services
+        run: |
+          docker compose up -d identity-service
+          # wait for healthz
+          for i in {1..30}; do
+            if curl -sf http://localhost:8001/api/v1/healthz >/dev/null; then
+              echo "Service is healthy"; break; fi
+            echo "Waiting for identity-service... ($i)"; sleep 2;
+          done
+          curl -s http://localhost:8001/api/v1/healthz || (echo "Service did not become healthy" && exit 1)
+
+      - name: Run Postman collection (direct service)
+        run: |
+          newman run docs/postman/identity-service.postman_collection.json \
+            -e docs/postman/identity-service.local.postman_environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export newman-report.xml
+
+      - name: Upload Newman report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-report-direct
+          path: newman-report.xml
+
+  gateway_base:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Newman
+        run: npm install -g newman
+
+      - name: Start gateway (and dependencies)
+        run: |
+          docker compose up -d api-gateway
+          # wait for gateway health
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/api/v1/healthz >/dev/null; then
+              echo "Gateway is healthy"; break; fi
+            echo "Waiting for api-gateway... ($i)"; sleep 2;
+          done
+          curl -s http://localhost:8080/api/v1/healthz || (echo "Gateway did not become healthy" && exit 1)
+
+      - name: Run Postman collection (via gateway)
+        run: |
+          newman run docs/postman/identity-service.postman_collection.json \
+            -e docs/postman/identity-gateway.local.postman_environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export newman-report-gateway.xml
+
+      - name: Upload Newman report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-report-gateway
+          path: newman-report-gateway.xml
+
+  direct_extended:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Newman
+        run: npm install -g newman
+
+      - name: Start services
+        run: |
+          docker compose up -d identity-service
+          # wait for healthz
+          for i in {1..30}; do
+            if curl -sf http://localhost:8001/api/v1/healthz >/dev/null; then
+              echo "Service is healthy"; break; fi
+            echo "Waiting for identity-service... ($i)"; sleep 2;
+          done
+          curl -s http://localhost:8001/api/v1/healthz || (echo "Service did not become healthy" && exit 1)
+
+      - name: Run Extended Postman collection (direct service)
+        run: |
+          newman run docs/postman/identity-service-extended.postman_collection.json \
+            -e docs/postman/identity-service-extended.local.postman_environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export newman-report-extended.xml
+
+      - name: Upload Newman report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-report-extended
+          path: newman-report-extended.xml

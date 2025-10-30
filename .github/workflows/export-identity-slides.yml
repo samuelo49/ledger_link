@@ -1,0 +1,31 @@
+name: Export Identity Service Slides
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/slides/identity-service-slides.md'
+      - 'docs/architecture/identity-service-flows.svg'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Marp CLI to export slides
+        uses: marp-team/marp-cli-action@v3
+        with:
+          files: docs/slides/identity-service-slides.md
+          png: true
+          pdf: true
+
+      - name: Upload exported artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: identity-service-slides
+          path: |
+            docs/slides/identity-service-slides.pdf
+            docs/slides/identity-service-slides.png
