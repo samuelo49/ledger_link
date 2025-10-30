@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from ..settings import identity_settings
+from services.identity_service.app.settings import identity_settings
 
 
 def build_engine() -> AsyncEngine:
     settings = identity_settings()
     engine = create_async_engine(
-        settings.database_url,
+        settings.async_db_url,
         echo=False,
         pool_pre_ping=True,
     )

@@ -11,7 +11,7 @@ COPY libs/shared/pyproject.toml libs/shared/pyproject.toml
 
 # 🧩 Install uv and sync workspace packages for this service
 RUN pip install --no-cache-dir uv \
-    && uv sync --package api-gateway --package shared-lib --no-editable --compile-bytecode
+    && uv sync --no-editable --compile-bytecode
 
 # 🧩 Copy actual source code (after dependency sync for Docker caching)
 COPY services/api_gateway /app/services/api_gateway

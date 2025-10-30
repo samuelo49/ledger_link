@@ -15,3 +15,4 @@ build/
 
 # Ignore internal documentation
 docs/internal/
+fintech_platform.egg-info/

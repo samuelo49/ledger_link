@@ -11,7 +11,7 @@ COPY libs/shared/pyproject.toml libs/shared/pyproject.toml
 
 # 🧩 Install uv and sync this service and its shared dependency
 RUN pip install --no-cache-dir uv \
-    && uv sync --package risk-service --package shared-lib --no-editable --compile-bytecode
+    && uv sync --no-editable --compile-bytecode
 
 # 🧩 Copy actual source code after syncing dependencies (to leverage Docker caching)
 COPY services/risk_service /app/services/risk_service
