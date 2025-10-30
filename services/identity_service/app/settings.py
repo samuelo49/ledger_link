@@ -19,7 +19,7 @@ class IdentitySettings(BaseSettings):
 
     # --- Database + cache ---
     database_url: AnyUrl = "postgresql+asyncpg://identity_user:identity_password@identity-db:5432/identity_db"
-    database_sync_url: AnyUrl = "postgresql://identity_user:identity_password@identity-db:5432/identity_db"
+    database_sync_url: AnyUrl = "postgresql+psycopg://identity_user:identity_password@identity-db:5432/identity_db"
     redis_url: AnyUrl = "redis://redis:6379/0"
 
     # --- JWT / Security ---
@@ -28,6 +28,10 @@ class IdentitySettings(BaseSettings):
     secret_key: str = "change-me"
     access_token_expires_minutes: int = 15
     refresh_token_expires_minutes: int = 1440
+    # Login policy
+    max_failed_login_attempts: int = 5
+    lockout_minutes: int = 15
+    require_verified_for_login: bool = False
 
     # --- Observability ---
     otel_endpoint: AnyUrl = "http://jaeger:4317"

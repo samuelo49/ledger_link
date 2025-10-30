@@ -38,3 +38,29 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# New flows: verification & password reset
+class VerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class VerificationConfirmRequest(BaseModel):
+    token: str
+
+
+class VerificationTokenResponse(BaseModel):
+    verification_token: str
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class PasswordResetTokenResponse(BaseModel):
+    password_reset_token: str

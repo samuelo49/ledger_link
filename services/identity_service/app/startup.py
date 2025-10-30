@@ -12,6 +12,7 @@ import random
 
 from .settings import identity_settings
 from .alembic_helper import run_alembic_migrations
+from .db.seed_users import seed_default_admin
 
 
 def setup_logging() -> None:
@@ -100,6 +101,14 @@ async def init_service_startup(app: FastAPI) -> None:
             else:
                 logger.error(f"❌ Alembic migrations failed: {e}")
                 raise
+
+    # Step 2b: Seed default admin (idempotent) after schema is applied
+    with tracer.start_as_current_span("db.seed_default_admin"):
+        try:
+            await seed_default_admin()
+            logger.info("🌱 Default admin seeding completed (idempotent).")
+        except Exception as e:
+            logger.warning(f"⚠️ Admin seeding skipped due to error: {e}")
 
     # Step 3: Setup instrumentation after DB is ready
     with tracer.start_as_current_span("instrumentation.setup"):

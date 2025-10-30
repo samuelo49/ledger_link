@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.user import User
 from ..core.security import pwd_context
-from ..db.session import async_session_maker
+from ..db.session import async_session_factory
 from ..settings import identity_settings
 
 
@@ -24,7 +24,7 @@ async def seed_default_admin():
     admin_password = settings.default_admin_password
     is_superuser = settings.default_admin_is_superuser
 
-    async with async_session_maker() as session:  # type: AsyncSession
+    async with async_session_factory() as session:
         result = await session.execute(select(User).where(User.email == admin_email))
         existing_user = result.scalars().first()
 
