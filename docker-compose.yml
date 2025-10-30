@@ -111,8 +111,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Schema is managed by Alembic at service startup; no init SQL needed
     volumes:
-      - ./docker/init-scripts/identity_db_init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - identity_data:/var/lib/postgresql/data
     networks:
       - fintech
 
@@ -129,8 +130,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Schema is managed by Alembic at service startup; no init SQL needed
     volumes:
-      - ./docker/init-scripts/wallet_db_init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - wallet_data:/var/lib/postgresql/data
     networks:
       - fintech
 
@@ -147,8 +149,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Schema is managed by Alembic at service startup; no init SQL needed
     volumes:
-      - ./docker/init-scripts/payments_db_init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - payments_data:/var/lib/postgresql/data
     networks:
       - fintech
 
@@ -165,8 +168,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    # Schema is managed by Alembic at service startup; no init SQL needed
     volumes:
-      - ./docker/init-scripts/risk_db_init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - risk_data:/var/lib/postgresql/data
     networks:
       - fintech
 
@@ -199,3 +203,9 @@ services:
 networks:
   fintech:
     driver: bridge
+
+volumes:
+  identity_data:
+  wallet_data:
+  payments_data:
+  risk_data:
