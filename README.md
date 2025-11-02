@@ -120,8 +120,6 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 
 ---
 
-<!-- SEO keywords (hidden): FastAPI microservices, Python asyncio, SQLAlchemy 2, Alembic migrations, PostgreSQL, Redis, OAuth2, JWT, JOSE, bcrypt, Docker Compose, AWS ECS ECR RDS ElastiCache, GitHub Actions CI/CD, OpenTelemetry, Prometheus, Grafana, Jaeger, Postman Newman, fintech payments, digital wallet, risk scoring, API gateway. -->
-
 ---
 
 # LedgerLink Developer Notes
