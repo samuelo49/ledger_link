@@ -59,6 +59,7 @@ LedgerLink is a modular, cloud‑native fintech backend built with FastAPI, Post
 Quick links:
 - Architecture: `docs/architecture/`
 - Postman collections: `docs/postman/`
+- Wallet E2E via gateway (collection): `docs/postman/wallet-gateway.postman_collection.json`
 - Slides: `docs/slides/`
 - Runbooks: `docs/runbooks/`
 - ADRs: `adr/`
@@ -88,6 +89,9 @@ make up
 
 # Run tests
 make test
+
+# Run wallet E2E flow via gateway (dockerized Newman)
+make wallet-gateway
 ```
 
 Access the API Gateway at: [http://localhost:8080/docs](http://localhost:8080/docs)
