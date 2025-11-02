@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, Response
 
 from ..settings import gateway_settings
 
-router = APIRouter(prefix="/api/v1/auth")
+router = APIRouter(prefix="/api/v1/payments")
 
 
 HOP_BY_HOP_HEADERS: set[str] = {
@@ -28,39 +28,11 @@ def _forward_headers(request: Request, extra: dict[str, str] | None = None) -> d
         lk = k.lower()
         if lk in HOP_BY_HOP_HEADERS:
             continue
-        # Only forward selected headers for safety; add more if needed
         if lk in {"authorization", "content-type", "accept", "x-request-id"}:
             headers[k] = v
     if extra:
         headers.update(extra)
     return headers
-
-
-async def _proxy_post(path: str, request: Request) -> Response:
-    settings = gateway_settings()
-    url = f"{settings.identity_base_url}{path}"
-    body = await request.body()
-    headers = _forward_headers(request)
-    timeout = httpx.Timeout(10.0, read=20.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        upstream = await client.post(url, content=body, headers=headers)
-    # Build response
-    content_type = upstream.headers.get("content-type")
-    response_headers = _select_response_headers(upstream.headers)
-    return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
-
-
-async def _proxy_get(path: str, request: Request) -> Response:
-    settings = gateway_settings()
-    url = f"{settings.identity_base_url}{path}"
-    headers = _forward_headers(request)
-    timeout = httpx.Timeout(10.0, read=20.0)
-    params = dict(request.query_params)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        upstream = await client.get(url, headers=headers, params=params)
-    content_type = upstream.headers.get("content-type")
-    response_headers = _select_response_headers(upstream.headers)
-    return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
 
 
 def _select_response_headers(headers: httpx.Headers | dict[str, str] | Iterable[tuple[str, str]]) -> dict[str, str]:
@@ -80,41 +52,42 @@ def _select_response_headers(headers: httpx.Headers | dict[str, str] | Iterable[
     return out
 
 
-@router.post("/register")
-async def register(request: Request) -> Response:
-    return await _proxy_post("/auth/register", request)
+async def _proxy_post(path: str, request: Request) -> Response:
+    settings = gateway_settings()
+    url = f"{settings.payments_base_url}{path}"
+    body = await request.body()
+    headers = _forward_headers(request)
+    timeout = httpx.Timeout(10.0, read=20.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        upstream = await client.post(url, content=body, headers=headers)
+    content_type = upstream.headers.get("content-type")
+    response_headers = _select_response_headers(upstream.headers)
+    return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
 
 
-@router.post("/token")
-async def token(request: Request) -> Response:
-    return await _proxy_post("/auth/token", request)
+async def _proxy_get(path: str, request: Request) -> Response:
+    settings = gateway_settings()
+    url = f"{settings.payments_base_url}{path}"
+    headers = _forward_headers(request)
+    timeout = httpx.Timeout(10.0, read=20.0)
+    params = dict(request.query_params)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        upstream = await client.get(url, headers=headers, params=params)
+    content_type = upstream.headers.get("content-type")
+    response_headers = _select_response_headers(upstream.headers)
+    return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
 
 
-@router.post("/refresh")
-async def refresh(request: Request) -> Response:
-    return await _proxy_post("/auth/refresh", request)
+@router.post("/intents")
+async def create_intent(request: Request) -> Response:
+    return await _proxy_post("/payments/intents", request)
 
 
-@router.get("/me")
-async def me(request: Request) -> Response:
-    return await _proxy_get("/auth/me", request)
+@router.post("/intents/{intent_id}/confirm")
+async def confirm_intent(intent_id: str, request: Request) -> Response:
+    return await _proxy_post(f"/payments/intents/{intent_id}/confirm", request)
 
 
-@router.post("/verification/request")
-async def verification_request(request: Request) -> Response:
-    return await _proxy_post("/auth/verification/request", request)
-
-
-@router.post("/verification/confirm")
-async def verification_confirm(request: Request) -> Response:
-    return await _proxy_post("/auth/verification/confirm", request)
-
-
-@router.post("/password-reset/request")
-async def password_reset_request(request: Request) -> Response:
-    return await _proxy_post("/auth/password-reset/request", request)
-
-
-@router.post("/password-reset/confirm")
-async def password_reset_confirm(request: Request) -> Response:
-    return await _proxy_post("/auth/password-reset/confirm", request)
+@router.get("/intents/{intent_id}")
+async def get_intent(intent_id: str, request: Request) -> Response:
+    return await _proxy_get(f"/payments/intents/{intent_id}", request)

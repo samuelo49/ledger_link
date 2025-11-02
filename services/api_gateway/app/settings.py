@@ -14,6 +14,10 @@ class GatewaySettings(BaseSettings):
     rate_limit_window_seconds: int = 60
     # Upstream identity service base URL (inside the Docker network by default)
     identity_base_url: str = "http://identity-service:8000/api/v1"
+    # Upstream wallet service base URL
+    wallet_base_url: str = "http://wallet-service:8000/api/v1"
+    # Upstream payments service base URL
+    payments_base_url: str = "http://payments-service:8000/api/v1"
 
 
 @lru_cache
