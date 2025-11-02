@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from .settings import wallet_settings
 from .alembic_helper import run_alembic_migrations
+from .routes import register_routes
 
 
 @asynccontextmanager
@@ -17,4 +18,6 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    return FastAPI(title="Wallet Service", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Wallet Service", version="0.1.0", lifespan=lifespan)
+    register_routes(app)
+    return app
