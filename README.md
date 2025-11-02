@@ -130,9 +130,12 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - [x] Identity v1 endpoints shipped (register, token/refresh, me, verification, password reset)
 - [x] E2E coverage via Postman + CI (direct and gateway base, direct extended)
 - [x] Co-located Alembic migrations with startup upgrade + seeding
-- [ ] Add gateway proxies for extended flows (me/verification/reset) and add a gateway-extended CI job
-- [ ] Start wallet service domain modeling and migrations
-- [ ] Expose /metrics across services and wire Prometheus dashboards
+- [x] API Gateway proxies for identity extended flows (me/verification/reset)
+- [x] Wallet service v1: models, migrations, endpoints (create/credit/debit/balance) with idempotency and row locking
+- [x] Wallet auth at service boundary (JWT validate, owner derived from token)
+- [x] Wallet Postman flow via gateway + CI job
+- [x] Expose /metrics on wallet service with Prometheus counters
+- [ ] Expose /metrics on remaining services and wire Prometheus dashboards
 
 ## 🧠 Lessons / Insights
 - Alembic "config not found" was solved by co-locating `alembic.ini`, `env.py`, and `versions/` inside each service and doing programmatic upgrades on startup.
@@ -160,8 +163,11 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Wrote `0002` migration and verified forward/backward compatibility.
 
 ### Day 5
-- Added minimal API Gateway proxy for auth (register/token/refresh) with base URL setting.
-- Authored base Postman collection and local environments (direct and gateway).
+- API Gateway base:
+	- Proxies for auth (register/token/refresh) with base URL setting
+	- Health endpoint under /api/v1/healthz
+	- Rate limiting and x-request-id middleware
+- Authored base Postman collection and local environments (direct and gateway)
 
 ### Day 6
 - Implemented `/auth/me`, verification request/confirm, and password reset request/confirm.
@@ -179,8 +185,26 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Bootstrapped Alembic scaffolds for wallet, payments, and risk services (+ startup hooks).
 - Updated service settings and pyprojects; verified compose wiring.
 
+### Day 10
+- Extended API Gateway:
+	- Added wallet and payments proxy routers; configured wallet_base_url and payments_base_url
+	- Routed identity extended flows (me/verification/reset) through the gateway
+	- Added module/function docstrings for clarity (internal code docs)
+	- Note: Payments service endpoints are not implemented yet; gateway proxies are in place
+
+### Day 11
+- Implemented Wallet service v1:
+	- SQLAlchemy models: Wallet, LedgerEntry; constraints, indexes, and (wallet_id, idempotency_key) uniqueness.
+	- Alembic migration creating wallets and ledger_entries tables.
+	- Endpoints: POST /wallets, POST /wallets/{id}/credit, POST /wallets/{id}/debit, GET /wallets/{id}/balance.
+	- Transactional balance updates with SELECT … FOR UPDATE; idempotent mutations; 409 on insufficient funds.
+	- Minimal auth at boundary: validate JWT (issuer/audience/scope) and derive owner from token subject.
+- Added Prometheus metrics and /metrics endpoint for wallet (credit/debit/idempotency/insufficient_funds counters).
+- Authored Postman collection to run register → token → create wallet → credit → debit → balance via gateway.
+- CI: Added a gateway Wallet job to run the new collection; added a Makefile target to run the flow locally with dockerized Newman.
+
 ## 🧰 Future Improvements
-- Add gateway proxies for extended identity flows and include a gateway-extended Postman job in CI.
+- Switch Identity → RS256 with JWKS; validate access tokens in services without shared secrets.
 - Refresh token rotation with replay detection; consider a token store for revocation.
 - Sign JWTs with key rotation (kid headers) and add a JWKS endpoint.
 - External email/SMS delivery for verification and password reset.
