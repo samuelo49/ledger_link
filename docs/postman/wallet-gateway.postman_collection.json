@@ -1,0 +1,188 @@
+{
+  "info": {
+    "name": "Wallet via Gateway (Local)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "a8e7b3f2-6c1a-4f23-9e1f-wallet-gw-local"
+  },
+  "item": [
+    {
+      "name": "Register",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "url": {"raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "if (!pm.environment.get('email')) { pm.environment.set('email', `user+${Date.now()}@example.com`); }",
+              "if (!pm.environment.get('password')) { pm.environment.set('password', 'Passw0rd!'); }"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"created or conflict\", function () {",
+              "  pm.expect([201, 409]).to.include(pm.response.code);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "  var json = pm.response.json();",
+              "  pm.environment.set(\"userId\", json.id);",
+              "} else {",
+              "  // Fetch /auth/token will still succeed even if user already exists",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "url": {"raw": "{{baseUrl}}/auth/token", "host": ["{{baseUrl}}"], "path": ["auth", "token"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"login ok\", function () { pm.expect(pm.response.code).to.equal(200); });",
+              "var json = pm.response.json();",
+              "pm.environment.set(\"access_token\", json.access_token);",
+              "pm.environment.set(\"refresh_token\", json.refresh_token);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets", "host": ["{{baseUrl}}"], "path": ["wallets"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"owner_user_id\": {{userId}},\n  \"currency\": \"USD\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"created or ok\", function () { pm.expect([200,201]).to.include(pm.response.code); });",
+              "var json = pm.response.json();",
+              "pm.environment.set(\"wallet_id\", json.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Credit Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets/{{wallet_id}}/credit", "host": ["{{baseUrl}}"], "path": ["wallets", "{{wallet_id}}", "credit"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 10.00,\n  \"idempotency_key\": \"credit-1\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"credit ok\", function () { pm.expect(pm.response.code).to.equal(200); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Debit Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets/{{wallet_id}}/debit", "host": ["{{baseUrl}}"], "path": ["wallets", "{{wallet_id}}", "debit"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 3.50,\n  \"idempotency_key\": \"debit-1\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"debit ok\", function () { pm.expect(pm.response.code).to.equal(200); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Balance",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets/{{wallet_id}}/balance", "host": ["{{baseUrl}}"], "path": ["wallets", "{{wallet_id}}", "balance"]}
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"balance is 6.50\", function () {",
+              "  var json = pm.response.json();",
+              "  pm.expect(json.balance).to.eql(6.50);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {"key": "email", "value": "user+{{randomInt}}@example.com"},
+    {"key": "password", "value": "Passw0rd!"}
+  ]
+}
