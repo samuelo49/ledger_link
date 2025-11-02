@@ -30,3 +30,32 @@ test:
 .PHONY: generate-openapi
 generate-openapi:
 	uv run python scripts/generate_openapi.py
+
+# --- Local E2E via Gateway (Wallet) ---
+.PHONY: health-gateway
+health-gateway:
+	@echo "Waiting for api-gateway health..."
+	@i=1; \
+	while [ $$i -le 120 ]; do \
+	  if curl -sf http://localhost:8080/api/v1/healthz >/dev/null; then \
+	    echo "Gateway is healthy"; break; \
+	  fi; \
+	  echo "Waiting for api-gateway... ($$i)"; \
+	  sleep 2; \
+	  i=$$((i+1)); \
+	done; \
+	curl -s http://localhost:8080/api/v1/healthz || (echo "Gateway did not become healthy" && docker compose logs api-gateway --no-color | tail -n 200 && exit 1)
+
+.PHONY: wallet-gateway-newman
+wallet-gateway-newman:
+	@echo "Running Wallet flow via gateway with dockerized Newman"
+	docker run --rm --network fintech -v $$(pwd):/etc/newman -w /etc/newman postman/newman:alpine \
+	  run docs/postman/wallet-gateway.postman_collection.json \
+	  -e docs/postman/identity-gateway.local.postman_environment.json \
+	  --env-var baseUrl=http://api-gateway:8080/api/v1 \
+	  --reporters cli,junit \
+	  --reporter-junit-export newman-wallet-gateway.xml
+
+.PHONY: wallet-gateway
+wallet-gateway: up health-gateway wallet-gateway-newman
+	@echo "Wallet gateway E2E complete. Report: newman-wallet-gateway.xml"
