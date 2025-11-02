@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Payments proxy routes for the API Gateway.
+
+Exposes payment intent endpoints under ``/api/v1/payments`` and forwards to the
+Payments service. Orchestration, risk decisions, and wallet debits are handled
+downstream; the gateway simply forwards requests and returns responses.
+"""
+
 from typing import Iterable
 
 import httpx
@@ -23,6 +30,7 @@ HOP_BY_HOP_HEADERS: set[str] = {
 
 
 def _forward_headers(request: Request, extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a sanitized copy of incoming headers suitable for proxying."""
     headers: dict[str, str] = {}
     for k, v in request.headers.items():
         lk = k.lower()
@@ -36,6 +44,7 @@ def _forward_headers(request: Request, extra: dict[str, str] | None = None) -> d
 
 
 def _select_response_headers(headers: httpx.Headers | dict[str, str] | Iterable[tuple[str, str]]) -> dict[str, str]:
+    """Filter upstream response headers to a safe subset for clients."""
     out: dict[str, str] = {}
     if isinstance(headers, httpx.Headers):
         items = headers.items()
@@ -53,6 +62,7 @@ def _select_response_headers(headers: httpx.Headers | dict[str, str] | Iterable[
 
 
 async def _proxy_post(path: str, request: Request) -> Response:
+    """Forward a POST request to the Payments service."""
     settings = gateway_settings()
     url = f"{settings.payments_base_url}{path}"
     body = await request.body()
@@ -66,6 +76,7 @@ async def _proxy_post(path: str, request: Request) -> Response:
 
 
 async def _proxy_get(path: str, request: Request) -> Response:
+    """Forward a GET request to the Payments service."""
     settings = gateway_settings()
     url = f"{settings.payments_base_url}{path}"
     headers = _forward_headers(request)
@@ -80,14 +91,17 @@ async def _proxy_get(path: str, request: Request) -> Response:
 
 @router.post("/intents")
 async def create_intent(request: Request) -> Response:
+    """Create a payment intent (proxy)."""
     return await _proxy_post("/payments/intents", request)
 
 
 @router.post("/intents/{intent_id}/confirm")
 async def confirm_intent(intent_id: str, request: Request) -> Response:
+    """Confirm a payment intent, triggering downstream evaluation (proxy)."""
     return await _proxy_post(f"/payments/intents/{intent_id}/confirm", request)
 
 
 @router.get("/intents/{intent_id}")
 async def get_intent(intent_id: str, request: Request) -> Response:
+    """Fetch a payment intent by id (proxy)."""
     return await _proxy_get(f"/payments/intents/{intent_id}", request)
