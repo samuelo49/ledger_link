@@ -18,6 +18,10 @@ class WalletSettings(BaseSettings):
     database_url: AnyUrl = "postgresql+asyncpg://wallet_user:wallet_password@wallet-db:5432/wallet_db"
     database_sync_url: AnyUrl = "postgresql+psycopg://wallet_user:wallet_password@wallet-db:5432/wallet_db"
     redis_url: AnyUrl = "redis://redis:6379/1"
+    # JWT validation to trust Identity Service tokens
+    jwt_audience: str = "fintech-partners"
+    jwt_issuer: str = "http://identity-service:8000"
+    secret_key: str = "changeme"
 
     @property
     def async_db_url(self) -> str:

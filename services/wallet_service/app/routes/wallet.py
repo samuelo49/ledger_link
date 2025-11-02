@@ -16,6 +16,13 @@ from services.wallet_service.app.schemas import (
     MoneyChangeRequest,
     BalanceResponse,
 )
+from services.wallet_service.app.dependencies import get_current_user_id
+from services.wallet_service.app.metrics import (
+    wallet_credit_total,
+    wallet_debit_total,
+    wallet_idempotency_replay_total,
+    wallet_insufficient_funds_total,
+)
 
 
 router = APIRouter()
@@ -30,10 +37,10 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.post("/", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
-async def create_wallet(payload: WalletCreate, session: SessionDep) -> WalletResponse:
+async def create_wallet(payload: WalletCreate, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     # Enforce one wallet per (owner, currency)
     existing = await session.execute(
-        select(Wallet).where(Wallet.owner_user_id == payload.owner_user_id, Wallet.currency == payload.currency)
+        select(Wallet).where(Wallet.owner_user_id == current_user_id, Wallet.currency == payload.currency)
     )
     if (row := existing.scalar_one_or_none()) is not None:
         # Idempotent create: return existing
@@ -45,7 +52,7 @@ async def create_wallet(payload: WalletCreate, session: SessionDep) -> WalletRes
             balance=row.balance,
         )
 
-    wallet = Wallet(owner_user_id=payload.owner_user_id, currency=payload.currency)
+    wallet = Wallet(owner_user_id=current_user_id, currency=payload.currency)
     session.add(wallet)
     await session.commit()
     await session.refresh(wallet)
@@ -65,12 +72,15 @@ async def _apply_money_change(
     amount: Decimal,
     idempotency_key: str | None,
     metadata: dict | None,
+    current_user_id: int,
 ) -> Wallet:
     # Lock the wallet row to prevent races
-    result = await session.execute(select(Wallet).where(Wallet.id == wallet_id).with_for_update())
+    result = await session.execute(
+        select(Wallet).where(Wallet.id == wallet_id, Wallet.owner_user_id == current_user_id).with_for_update()
+    )
     wallet = result.scalar_one_or_none()
     if wallet is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
 
     # Idempotency: if key provided, check existing entry
     if idempotency_key:
@@ -82,10 +92,12 @@ async def _apply_money_change(
         )
         if (entry := existing.scalar_one_or_none()) is not None:
             # If an entry exists, consider operation idempotent and return current wallet state
+            wallet_idempotency_replay_total.labels(currency=wallet.currency, type=kind.value).inc()
             return wallet
 
     if kind == EntryType.debit:
         if wallet.balance < amount:
+            wallet_insufficient_funds_total.labels(currency=wallet.currency).inc()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insufficient funds")
         wallet.balance = wallet.balance - amount
     else:
@@ -102,11 +114,15 @@ async def _apply_money_change(
     await session.flush()
     await session.commit()
     await session.refresh(wallet)
+    if kind == EntryType.debit:
+        wallet_debit_total.labels(currency=wallet.currency).inc()
+    else:
+        wallet_credit_total.labels(currency=wallet.currency).inc()
     return wallet
 
 
 @router.post("/{wallet_id}/credit", response_model=WalletResponse)
-async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep) -> WalletResponse:
+async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
         wallet = await _apply_money_change(
             session,
@@ -115,6 +131,7 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Se
             payload.amount,
             payload.idempotency_key,
             payload.metadata,
+            current_user_id,
         )
     return WalletResponse(
         id=wallet.id,
@@ -126,7 +143,7 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Se
 
 
 @router.post("/{wallet_id}/debit", response_model=WalletResponse)
-async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep) -> WalletResponse:
+async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
         wallet = await _apply_money_change(
             session,
@@ -135,6 +152,7 @@ async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Ses
             payload.amount,
             payload.idempotency_key,
             payload.metadata,
+            current_user_id,
         )
     return WalletResponse(
         id=wallet.id,
@@ -146,9 +164,9 @@ async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Ses
 
 
 @router.get("/{wallet_id}/balance", response_model=BalanceResponse)
-async def get_balance(wallet_id: int, session: SessionDep) -> BalanceResponse:
-    result = await session.execute(select(Wallet).where(Wallet.id == wallet_id))
+async def get_balance(wallet_id: int, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> BalanceResponse:
+    result = await session.execute(select(Wallet).where(Wallet.id == wallet_id, Wallet.owner_user_id == current_user_id))
     wallet = result.scalar_one_or_none()
     if wallet is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
     return BalanceResponse(id=wallet.id, currency=wallet.currency, balance=wallet.balance)

@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 
 class WalletCreate(BaseModel):
-    owner_user_id: int = Field(..., ge=1)
     currency: str = Field(..., min_length=3, max_length=3, description="ISO currency code, e.g. USD")
 
 

@@ -12,6 +12,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "redis",
+    "python-jose[cryptography]",
     "loguru",
     "prometheus-client",
     "opentelemetry-instrumentation-fastapi",

@@ -87,7 +87,7 @@
         "url": {"raw": "{{baseUrl}}/wallets", "host": ["{{baseUrl}}"], "path": ["wallets"]},
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"owner_user_id\": {{userId}},\n  \"currency\": \"USD\"\n}"
+          "raw": "{\n  \"currency\": \"USD\"\n}"
         }
       },
       "event": [

@@ -143,3 +143,47 @@ jobs:
         with:
           name: newman-report-extended
           path: newman-report-extended.xml
+
+  gateway_wallet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Newman
+        run: npm install -g newman
+
+      - name: Prepare .env for CI
+        run: |
+          # Create a minimal .env so docker compose env_file doesn't fail
+          touch .env
+
+      - name: Start gateway (and dependencies)
+        run: |
+          docker compose up -d api-gateway
+          # wait for gateway health (allow time for dependency builds)
+          for i in {1..120}; do
+            if curl -sf http://localhost:8080/api/v1/healthz >/dev/null; then
+              echo "Gateway is healthy"; break; fi
+            echo "Waiting for api-gateway... ($i)"; sleep 5;
+          done
+          curl -s http://localhost:8080/api/v1/healthz || (echo "Gateway did not become healthy" && docker compose logs api-gateway --no-color | tail -n 200 && exit 1)
+
+      - name: Run Wallet Postman collection (via gateway)
+        run: |
+          newman run docs/postman/wallet-gateway.postman_collection.json \
+            -e docs/postman/identity-gateway.local.postman_environment.json \
+            --reporters cli,junit \
+            --reporter-junit-export newman-report-wallet-gateway.xml
+
+      - name: Upload Newman report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: newman-report-wallet-gateway
+          path: newman-report-wallet-gateway.xml
