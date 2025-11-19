@@ -1,0 +1,58 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Credits (5m)",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(increase(wallet_credit_total[5m]))", "legendFormat": "credits"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Debits (5m)",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "targets": [
+        {"expr": "sum(increase(wallet_debit_total[5m]))", "legendFormat": "debits"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Insufficient Funds (5m)",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {"expr": "sum(increase(wallet_insufficient_funds_total[5m]))", "legendFormat": "insufficient"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Credits per minute by currency",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {"expr": "sum by (currency)(rate(wallet_credit_total[1m]))", "legendFormat": "{{currency}}"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Debits per minute by currency",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {"expr": "sum by (currency)(rate(wallet_debit_total[1m]))", "legendFormat": "{{currency}}"}
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["wallet"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timezone": "",
+  "title": "Wallet Overview",
+  "version": 1
+}
