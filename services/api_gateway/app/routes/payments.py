@@ -67,12 +67,20 @@ async def _proxy_post(path: str, request: Request) -> Response:
     url = f"{settings.payments_base_url}{path}"
     body = await request.body()
     headers = _forward_headers(request)
-    timeout = httpx.Timeout(10.0, read=20.0)
+    timeout = httpx.Timeout(
+        10.0, 
+        read=20.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         upstream = await client.post(url, content=body, headers=headers)
     content_type = upstream.headers.get("content-type")
     response_headers = _select_response_headers(upstream.headers)
-    return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
+    
+    return Response(
+        content=upstream.content, 
+        status_code=upstream.status_code, 
+        media_type=content_type, 
+        headers=response_headers
+        )
 
 
 async def _proxy_get(path: str, request: Request) -> Response:

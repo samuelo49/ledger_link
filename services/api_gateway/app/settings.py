@@ -8,6 +8,7 @@ or production. See ``env_prefix=GATEWAY_`` for variable names.
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyUrl
 
 
 class GatewaySettings(BaseSettings):
@@ -17,6 +18,7 @@ class GatewaySettings(BaseSettings):
     """
     model_config = SettingsConfigDict(env_prefix="GATEWAY_", env_file=".env", env_file_encoding="utf-8")
 
+    service_name: str = "api-gateway"
     port: int = 8080
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
@@ -29,6 +31,8 @@ class GatewaySettings(BaseSettings):
     wallet_base_url: str = "http://wallet-service:8000/api/v1"
     # Upstream payments service base URL
     payments_base_url: str = "http://payments-service:8000/api/v1"
+    # Observability
+    otel_endpoint: AnyUrl = "http://jaeger:4317"
 
 
 @lru_cache

@@ -22,6 +22,8 @@ class WalletSettings(BaseSettings):
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
     secret_key: str = "changeme"
+    # Observability
+    otel_endpoint: AnyUrl = "http://jaeger:4317"
 
     @property
     def async_db_url(self) -> str:
