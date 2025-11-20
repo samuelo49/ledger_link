@@ -71,7 +71,7 @@ async def _apply_money_change(
     kind: EntryType,
     amount: Decimal,
     idempotency_key: str | None,
-    metadata: dict | None,
+    details: dict | None,
     current_user_id: int,
 ) -> Wallet:
     # Lock the wallet row to prevent races
@@ -108,7 +108,7 @@ async def _apply_money_change(
         type=kind.value,
         amount=amount,
         idempotency_key=idempotency_key,
-        metadata=metadata or None,
+        details=details or None,
     )
     session.add(entry)
     await session.flush()
@@ -130,7 +130,7 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Se
             EntryType.credit,
             payload.amount,
             payload.idempotency_key,
-            payload.metadata,
+            payload.details,
             current_user_id,
         )
     return WalletResponse(
@@ -151,7 +151,7 @@ async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Ses
             EntryType.debit,
             payload.amount,
             payload.idempotency_key,
-            payload.metadata,
+            payload.details,
             current_user_id,
         )
     return WalletResponse(

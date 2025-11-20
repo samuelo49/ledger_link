@@ -11,6 +11,39 @@ bootstrap:
 up:
 	docker compose up --build
 
+# Build all service images (cached)
+.PHONY: build
+build:
+	docker compose build
+
+# Rebuild all service images without using cache
+.PHONY: rebuild
+rebuild:
+	docker compose build --no-cache
+
+# Force recreate containers after (cached) build
+.PHONY: up-clean
+up-clean: build
+	docker compose up --force-recreate -d
+
+# Force recreate with no cache build (full clean spin-up)
+.PHONY: up-full
+up-full: rebuild
+	docker compose up --force-recreate -d
+
+# Selective build of specified SERVICES (space separated), e.g.:
+# make build-services SERVICES="identity-service wallet-service api-gateway"
+.PHONY: build-services
+build-services:
+	@if [ -z "$(SERVICES)" ]; then echo "Set SERVICES to space-separated list of compose service names"; exit 1; fi; \
+	docker compose build $(SERVICES)
+
+# Restart specific services with new images (after build/build-services)
+.PHONY: restart-services
+restart-services:
+	@if [ -z "$(SERVICES)" ]; then echo "Set SERVICES to space-separated list of compose service names"; exit 1; fi; \
+	docker compose up -d --force-recreate $(SERVICES)
+
 .PHONY: down
 down:
 	docker compose down --remove-orphans

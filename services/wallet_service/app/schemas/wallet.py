@@ -19,7 +19,7 @@ class WalletResponse(BaseModel):
 class MoneyChangeRequest(BaseModel):
     amount: Decimal = Field(..., gt=0)
     idempotency_key: str | None = Field(None, max_length=64)
-    metadata: dict | None = None
+    details: dict | None = Field(None, description="Optional metadata payload persisted with the ledger entry")
 
 
 class BalanceResponse(BaseModel):

@@ -27,7 +27,8 @@ class LedgerEntry(Base):
     type: Mapped[str] = mapped_column(String(10), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    # Use attribute name 'details' to avoid reserved declarative name 'metadata'; underlying column kept as 'metadata'.
+    details: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )

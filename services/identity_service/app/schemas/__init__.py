@@ -1,4 +1,16 @@
-from .auth import LoginRequest, RefreshRequest, Token, TokenPayload, UserResponse
+from .auth import (
+    LoginRequest,
+    RefreshRequest,
+    Token,
+    TokenPayload,
+    UserResponse,
+    VerificationRequest,
+    VerificationConfirmRequest,
+    VerificationTokenResponse,
+    PasswordResetRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetTokenResponse,
+)
 
 __all__ = [
     "LoginRequest",
@@ -6,4 +18,10 @@ __all__ = [
     "Token",
     "TokenPayload",
     "UserResponse",
+    "VerificationRequest",
+    "VerificationConfirmRequest",
+    "VerificationTokenResponse",
+    "PasswordResetRequest",
+    "PasswordResetConfirmRequest",
+    "PasswordResetTokenResponse",
 ]
