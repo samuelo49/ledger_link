@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from services.payments_service.app.db.base import Base
+from services.payments_service.app.models import payment_intent
 
 config = context.config
 

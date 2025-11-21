@@ -15,7 +15,9 @@ dependencies = [
     "loguru",
     "prometheus-client",
     "opentelemetry-instrumentation-fastapi",
-    "opentelemetry-sdk"
+    "opentelemetry-sdk",
+    "httpx",
+    "python-jose[cryptography]"
 ]
 
 [build-system]

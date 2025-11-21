@@ -18,6 +18,9 @@ class PaymentsSettings(BaseSettings):
     database_url: AnyUrl = "postgresql+asyncpg://payments_user:payments_password@payments-db:5432/payments_db"
     database_sync_url: AnyUrl = "postgresql+psycopg://payments_user:payments_password@payments-db:5432/payments_db"
     redis_url: AnyUrl = "redis://redis:6379/2"
+    jwt_audience: str = "fintech-partners"
+    jwt_issuer: str = "http://identity-service:8000"
+    secret_key: str = "changeme"
 
     @property
     def async_db_url(self) -> str:
