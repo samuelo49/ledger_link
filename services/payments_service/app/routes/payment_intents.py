@@ -21,7 +21,7 @@ from ..settings import payments_settings
 router = APIRouter(prefix="/payments/intents", tags=["payment-intents"])
 
 
-async def get_session() -> AsyncSession:
+async def get_session():
     async with async_session_factory() as session:
         yield session
 

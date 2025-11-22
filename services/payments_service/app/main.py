@@ -13,8 +13,8 @@ from fastapi import Response
 async def lifespan(app: FastAPI):
     try:
         await run_alembic_migrations(payments_settings().sync_db_url)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Migration failed...{e}")
     yield
 
 
