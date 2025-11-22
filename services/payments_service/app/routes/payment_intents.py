@@ -68,7 +68,10 @@ async def confirm_intent(
     current_user_id: int = Depends(get_current_user_id),
 ) -> PaymentIntentResponse:
     intent = await session.scalar(
-        select(PaymentIntent).where(PaymentIntent.id == intent_id, PaymentIntent.user_id == current_user_id)
+        select(PaymentIntent)
+        .where(PaymentIntent.id == intent_id, 
+               PaymentIntent.user_id == current_user_id
+               )
     )
     if not intent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Intent not found")
