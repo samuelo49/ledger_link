@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import AsyncGenerator
@@ -23,6 +23,8 @@ from services.wallet_service.app.metrics import (
     wallet_idempotency_replay_total,
     wallet_insufficient_funds_total,
 )
+from services.wallet_service.app.settings import wallet_settings
+import httpx
 
 
 router = APIRouter()
@@ -34,6 +36,51 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _extract_risk_metadata(request: Request) -> dict[str, str]:
+    return {
+        "ip_country": request.headers.get("x-risk-ip-country", ""),
+        "user_country": request.headers.get("x-user-country", ""),
+        "client_ip": request.client.host if request.client else "",
+        "user_agent": request.headers.get("user-agent", ""),
+    }
+
+
+async def _enforce_wallet_risk(
+    wallet: Wallet,
+    amount: Decimal,
+    current_user_id: int,
+    risk_metadata: dict | None,
+) -> None:
+    settings = wallet_settings()
+    if not settings.risk_checks_enabled:
+        return
+    payload = {
+        "event_type": "wallet_transaction",
+        "subject_id": str(wallet.id),
+        "user_id": str(current_user_id),
+        "amount": str(amount),
+        "currency": wallet.currency,
+        "metadata": {
+            "wallet_owner": wallet.owner_user_id,
+            "transaction_type": "debit",
+            **(risk_metadata or {}),
+        },
+    }
+    risk_url = f"{settings.risk_base_url}/evaluations"
+    timeout = httpx.Timeout(5.0, read=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(risk_url, json=payload)
+    if response.status_code >= 500:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Risk service unavailable")
+    if response.status_code >= 400:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Wallet risk evaluation failed")
+    decision = response.json().get("decision")
+    if decision == "decline":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wallet transaction declined by risk engine")
+    if decision == "review":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Wallet transaction pending risk review")
 
 
 @router.post("/", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
@@ -73,6 +120,7 @@ async def _apply_money_change(
     idempotency_key: str | None,
     details: dict | None,
     current_user_id: int,
+    risk_metadata: dict | None = None,
 ) -> Wallet:
     # Lock the wallet row to prevent races
     result = await session.execute(
@@ -94,6 +142,9 @@ async def _apply_money_change(
             # If an entry exists, consider operation idempotent and return current wallet state
             wallet_idempotency_replay_total.labels(currency=wallet.currency, type=kind.value).inc()
             return wallet
+
+    if kind == EntryType.debit:
+        await _enforce_wallet_risk(wallet, amount, current_user_id, risk_metadata)
 
     if kind == EntryType.debit:
         if wallet.balance < amount:
@@ -122,7 +173,7 @@ async def _apply_money_change(
 
 
 @router.post("/{wallet_id}/credit", response_model=WalletResponse)
-async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
+async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Request, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
         wallet = await _apply_money_change(
             session,
@@ -132,6 +183,7 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Se
             payload.idempotency_key,
             payload.details,
             current_user_id,
+            _extract_risk_metadata(request),
         )
     return WalletResponse(
         id=wallet.id,
@@ -143,7 +195,7 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Se
 
 
 @router.post("/{wallet_id}/debit", response_model=WalletResponse)
-async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
+async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Request, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
         wallet = await _apply_money_change(
             session,
@@ -153,6 +205,7 @@ async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, session: Ses
             payload.idempotency_key,
             payload.details,
             current_user_id,
+            _extract_risk_metadata(request),
         )
     return WalletResponse(
         id=wallet.id,

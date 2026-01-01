@@ -25,3 +25,9 @@ wallet_debit_latency_seconds = Histogram(
     "Latency of downstream wallet debit calls during confirmation",
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
+
+payment_intent_risk_decision_total = Counter(
+    "payment_intent_risk_decision_total",
+    "Decisions returned by the risk engine during confirmation",
+    ["decision"],
+)

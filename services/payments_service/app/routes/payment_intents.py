@@ -21,6 +21,7 @@ from ..metrics import (
     payment_intent_confirmed_total,
     payment_intent_wallet_debit_failures_total,
     wallet_debit_latency_seconds,
+    payment_intent_risk_decision_total,
 )
 from ..settings import payments_settings
 
@@ -87,6 +88,14 @@ async def confirm_intent(
     # Debit wallet via wallet service using same bearer token for ownership enforcement
     settings = payments_settings()
     auth_header = request.headers.get("authorization")
+
+    risk_result = await _evaluate_risk(intent, request, settings)
+    decision = risk_result.get("decision")
+    if decision == "decline":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Payment declined by risk engine")
+    if decision == "review":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Payment pending manual review")
+
     wallet_debit_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/debit"
     debit_payload = {
         "amount": str(intent.amount),
@@ -116,3 +125,39 @@ async def confirm_intent(
     await session.refresh(intent)
     payment_intent_confirmed_total.labels(currency=intent.currency).inc()
     return PaymentIntentResponse.model_validate(intent)
+async def _evaluate_risk(intent: PaymentIntent, request: Request, settings) -> dict:
+    metadata = {
+        "wallet_id": intent.wallet_id,
+        "client_ip": request.client.host if request.client else None,
+        "ip_country": request.headers.get("x-risk-ip-country"),
+        "user_country": request.headers.get("x-user-country"),
+        "email_domain": request.headers.get("x-user-email-domain"),
+        "user_agent": request.headers.get("user-agent"),
+    }
+    risk_payload = {
+        "event_type": "payment_intent_confirm",
+        "subject_id": str(intent.id),
+        "user_id": str(intent.user_id),
+        "amount": str(intent.amount),
+        "currency": intent.currency,
+        "metadata": {k: v for k, v in metadata.items() if v},
+    }
+    risk_url = f"{settings.risk_base_url}/evaluations"
+    timeout = httpx.Timeout(10.0, read=20.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(risk_url, json=risk_payload)
+    if response.status_code >= 500:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Risk service unavailable",
+        )
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Risk evaluation failed",
+        )
+    data = response.json()
+    decision = data.get("decision")
+    if decision:
+        payment_intent_risk_decision_total.labels(decision=decision).inc()
+    return data

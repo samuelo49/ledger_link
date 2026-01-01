@@ -31,6 +31,8 @@ class GatewaySettings(BaseSettings):
     wallet_base_url: str = "http://wallet-service:8000/api/v1"
     # Upstream payments service base URL
     payments_base_url: str = "http://payments-service:8000/api/v1"
+    # Upstream risk service base URL
+    risk_base_url: str = "http://risk-service:8000/api/v1"
     # Observability
     otel_endpoint: AnyUrl = "http://jaeger:4317"
 

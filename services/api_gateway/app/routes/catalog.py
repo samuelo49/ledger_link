@@ -27,7 +27,7 @@ SERVICE_MAP = {
     "identity": "identity_base_url",
     "wallet": "wallet_base_url",
     "payments": "payments_base_url",
-    # risk service base url isn't in settings yet; add once implemented
+    "risk": "risk_base_url",
 }
 
 

@@ -207,6 +207,12 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Authored Postman collection to run register → token → create wallet → credit → debit → balance via gateway.
 - CI: Added a gateway Wallet job to run the new collection; added a Makefile target to run the flow locally with dockerized Newman.
 
+### Day 12
+- Built out the Risk service with async DB sessions, Alembic migrations, SQLAlchemy models for `risk_rules` and `risk_evaluations`, and seeded baseline rules on startup.
+- Implemented a configurable rule engine (amount thresholds, country mismatch, country/email blocklists) plus REST endpoints under `/api/v1/risk` for evaluations, lookups, and Prometheus metrics.
+- Payments confirmation now calls the risk engine before debiting wallets; declines/reviews abort confirmation with clear HTTP errors.
+- Added optional wallet risk hooks (`WALLET_RISK_CHECKS_ENABLED`) to prepare future direct wallet flows to reuse the same risk service.
+
 ## 🧰 Future Improvements
 - Switch Identity → RS256 with JWKS; validate access tokens in services without shared secrets.
 - Refresh token rotation with replay detection; consider a token store for revocation.

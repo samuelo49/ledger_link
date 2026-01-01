@@ -22,6 +22,8 @@ class WalletSettings(BaseSettings):
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
     secret_key: str = "changeme"
+    risk_base_url: str = "http://risk-service:8000/api/v1/risk"
+    risk_checks_enabled: bool = False
     # Observability
     otel_endpoint: AnyUrl = "http://jaeger:4317"
 

@@ -21,6 +21,7 @@ class PaymentsSettings(BaseSettings):
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
     secret_key: str = "changeme"
+    risk_base_url: str = "http://risk-service:8000/api/v1/risk"
 
     @property
     def async_db_url(self) -> str:
