@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,12 @@ from ..schemas.payment_intent import (
     PaymentIntentConfirmRequest,
 )
 from ..dependencies import get_current_user_id
-from ..metrics import payment_intent_created_total, payment_intent_confirmed_total
+from ..metrics import (
+    payment_intent_created_total,
+    payment_intent_confirmed_total,
+    payment_intent_wallet_debit_failures_total,
+    wallet_debit_latency_seconds,
+)
 from ..settings import payments_settings
 
 router = APIRouter(prefix="/payments/intents", tags=["payment-intents"])
@@ -87,9 +93,21 @@ async def confirm_intent(
         "idempotency_key": f"pi-confirm-{intent.id}",
         "details": {"payment_intent_id": intent.id},
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=20.0)) as client:
-        upstream = await client.post(wallet_debit_url, json=debit_payload, headers={"Authorization": auth_header})
+    timeout = httpx.Timeout(10.0, read=20.0)
+    upstream: httpx.Response | None = None
+    start = perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            upstream = await client.post(wallet_debit_url, json=debit_payload, headers={"Authorization": auth_header})
+    except httpx.HTTPError as exc:  # noqa: BLE001
+        payment_intent_wallet_debit_failures_total.labels(reason="network").inc()
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Wallet debit unreachable") from exc
+    finally:
+        duration = perf_counter() - start
+        wallet_debit_latency_seconds.observe(duration)
+    assert upstream is not None  # mypy/type checker guard
     if upstream.status_code >= 400:
+        payment_intent_wallet_debit_failures_total.labels(reason=f"status_{upstream.status_code}").inc()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Wallet debit failed")
 
     intent.status = PaymentIntentStatus.confirmed.value

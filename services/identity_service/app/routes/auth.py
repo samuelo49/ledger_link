@@ -22,6 +22,15 @@ from ..schemas import (
     PasswordResetTokenResponse,
 )
 from ..settings import identity_settings
+from ..metrics import (
+    registration_total,
+    login_attempt_total,
+    token_refresh_total,
+    verification_request_total,
+    verification_confirm_total,
+    password_reset_request_total,
+    password_reset_confirm_total,
+)
 
 router = APIRouter(prefix="/auth")
 
@@ -30,11 +39,13 @@ router = APIRouter(prefix="/auth")
 async def register_user(payload: LoginRequest, session: AsyncSession = Depends(get_session)) -> UserResponse:
     existing = await session.scalar(select(User).where(User.email == payload.email))
     if existing:
+        registration_total.labels(outcome="conflict").inc()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
     user = User(email=payload.email, hashed_password=hash_password(payload.password))
     session.add(user)
     await session.commit()
     await session.refresh(user)
+    registration_total.labels(outcome="created").inc()
     return UserResponse.model_validate(user)
 
 
@@ -52,12 +63,14 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
                 user.locked_at = datetime.now(tz=timezone.utc)
             session.add(user)
             await session.commit()
+        login_attempt_total.labels(outcome="invalid_credentials").inc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     # Check lockout window
     if user.locked_at:
         lockout_until = user.locked_at + timedelta(minutes=settings.lockout_minutes)
         if datetime.now(tz=timezone.utc) < lockout_until:
+            login_attempt_total.labels(outcome="locked_out").inc()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account locked. Try again later.")
         # Lockout expired: reset
         user.locked_at = None
@@ -65,8 +78,10 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
 
     # Additional account checks
     if not user.is_active:
+        login_attempt_total.labels(outcome="inactive").inc()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
     if settings.require_verified_for_login and not user.is_verified:
+        login_attempt_total.labels(outcome="unverified").inc()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified")
 
     # Successful login: issue tokens and update audit fields
@@ -86,6 +101,7 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
     session.add(user)
     await session.commit()
 
+    login_attempt_total.labels(outcome="success").inc()
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -105,8 +121,10 @@ async def refresh(payload: RefreshRequest) -> Token:
             issuer=settings.jwt_issuer,
         )
     except JWTError as exc:
+        token_refresh_total.labels(outcome="invalid_token").inc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
     if decoded.get("scope") != "refresh":
+        token_refresh_total.labels(outcome="invalid_scope").inc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token scope")
     access_delta = timedelta(minutes=settings.access_token_expires_minutes)
     refresh_delta = timedelta(minutes=settings.refresh_token_expires_minutes)
@@ -118,6 +136,7 @@ async def refresh(payload: RefreshRequest) -> Token:
         expires_delta=refresh_delta,
         token_type="refresh",
     )
+    token_refresh_total.labels(outcome="success").inc()
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -160,6 +179,9 @@ async def verification_request(payload: VerificationRequest, session: AsyncSessi
         user.verification_token = token
         session.add(user)
         await session.commit()
+        verification_request_total.labels(outcome="issued").inc()
+    else:
+        verification_request_total.labels(outcome="unknown_user").inc()
     return VerificationTokenResponse(verification_token=token)
 
 
@@ -167,6 +189,7 @@ async def verification_request(payload: VerificationRequest, session: AsyncSessi
 async def verification_confirm(payload: VerificationConfirmRequest, session: AsyncSession = Depends(get_session)) -> UserResponse:
     user = await session.scalar(select(User).where(User.verification_token == payload.token))
     if not user:
+        verification_confirm_total.labels(outcome="invalid_token").inc()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid verification token")
     user.is_verified = True
     user.verified_at = datetime.now(tz=timezone.utc)
@@ -174,6 +197,7 @@ async def verification_confirm(payload: VerificationConfirmRequest, session: Asy
     session.add(user)
     await session.commit()
     await session.refresh(user)
+    verification_confirm_total.labels(outcome="success").inc()
     return UserResponse.model_validate(user)
 
 
@@ -186,6 +210,9 @@ async def password_reset_request(payload: PasswordResetRequest, session: AsyncSe
         user.password_reset_sent_at = datetime.now(tz=timezone.utc)
         session.add(user)
         await session.commit()
+        password_reset_request_total.labels(outcome="issued").inc()
+    else:
+        password_reset_request_total.labels(outcome="unknown_user").inc()
     return PasswordResetTokenResponse(password_reset_token=token)
 
 
@@ -193,6 +220,7 @@ async def password_reset_request(payload: PasswordResetRequest, session: AsyncSe
 async def password_reset_confirm(payload: PasswordResetConfirmRequest, session: AsyncSession = Depends(get_session)) -> None:
     user = await session.scalar(select(User).where(User.password_reset_token == payload.token))
     if not user:
+        password_reset_confirm_total.labels(outcome="invalid_token").inc()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password reset token")
     user.hashed_password = hash_password(payload.new_password)
     user.password_reset_token = None
@@ -202,3 +230,4 @@ async def password_reset_confirm(payload: PasswordResetConfirmRequest, session: 
     user.locked_at = None
     session.add(user)
     await session.commit()
+    password_reset_confirm_total.labels(outcome="success").inc()

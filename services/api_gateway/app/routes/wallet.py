@@ -12,6 +12,7 @@ from typing import Iterable
 import httpx
 from fastapi import APIRouter, Request, Response
 
+from ..metrics import TimedCall
 from ..settings import gateway_settings
 
 router = APIRouter(prefix="/api/v1/wallets")
@@ -68,8 +69,10 @@ async def _proxy_post(path: str, request: Request) -> Response:
     body = await request.body()
     headers = _forward_headers(request)
     timeout = httpx.Timeout(10.0, read=20.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        upstream = await client.post(url, content=body, headers=headers)
+    with TimedCall(service="wallet", method="POST") as span:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            upstream = await client.post(url, content=body, headers=headers)
+        span.status_code = upstream.status_code
     content_type = upstream.headers.get("content-type")
     response_headers = _select_response_headers(upstream.headers)
     return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
@@ -82,8 +85,10 @@ async def _proxy_get(path: str, request: Request) -> Response:
     headers = _forward_headers(request)
     timeout = httpx.Timeout(10.0, read=20.0)
     params = dict(request.query_params)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        upstream = await client.get(url, headers=headers, params=params)
+    with TimedCall(service="wallet", method="GET") as span:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            upstream = await client.get(url, headers=headers, params=params)
+        span.status_code = upstream.status_code
     content_type = upstream.headers.get("content-type")
     response_headers = _select_response_headers(upstream.headers)
     return Response(content=upstream.content, status_code=upstream.status_code, media_type=content_type, headers=response_headers)
