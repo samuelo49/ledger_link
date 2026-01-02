@@ -85,10 +85,10 @@
               "script": {
                 "exec": [
                   "pm.test('OK (200)', function () { pm.response.to.have.status(200); });",
-                  "const data = pm.response.json();",
-                  "pm.environment.set('access_token', data.access_token);",
-                  "pm.environment.set('refresh_token', data.refresh_token);",
-                  "pm.test('Has tokens', function () { pm.expect(data).to.have.property('access_token'); pm.expect(data).to.have.property('refresh_token'); });"
+                  "const tokenData = pm.response.json();",
+                  "pm.environment.set('access_token', tokenData.access_token);",
+                  "pm.environment.set('refresh_token', tokenData.refresh_token);",
+                  "pm.test('Has tokens', function () { pm.expect(tokenData).to.have.property('access_token'); pm.expect(tokenData).to.have.property('refresh_token'); });"
                 ],
                 "type": "text/javascript"
               }
@@ -118,9 +118,9 @@
               "script": {
                 "exec": [
                   "pm.test('OK (200)', function () { pm.response.to.have.status(200); });",
-                  "const data = pm.response.json();",
-                  "pm.environment.set('access_token', data.access_token);",
-                  "pm.environment.set('refresh_token', data.refresh_token);"
+                  "const refreshData = pm.response.json();",
+                  "pm.environment.set('access_token', refreshData.access_token);",
+                  "pm.environment.set('refresh_token', refreshData.refresh_token);"
                 ],
                 "type": "text/javascript"
               }
