@@ -20,8 +20,8 @@ class PaymentsSettings(BaseSettings):
     redis_url: AnyUrl = "redis://redis:6379/2"
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
-    secret_key: str = "changeme"
     risk_base_url: str = "http://risk-service:8000/api/v1/risk"
+    jwks_url: str = "http://identity-service:8000/api/v1/auth/jwks"
 
     @property
     def async_db_url(self) -> str:

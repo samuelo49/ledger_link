@@ -21,7 +21,7 @@ class WalletSettings(BaseSettings):
     # JWT validation to trust Identity Service tokens
     jwt_audience: str = "fintech-partners"
     jwt_issuer: str = "http://identity-service:8000"
-    secret_key: str = "changeme"
+    jwks_url: str = "http://identity-service:8000/api/v1/auth/jwks"
     risk_base_url: str = "http://risk-service:8000/api/v1/risk"
     risk_checks_enabled: bool = False
     # Observability

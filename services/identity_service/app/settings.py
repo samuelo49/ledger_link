@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 from functools import lru_cache
+from pathlib import Path
+
+from loguru import logger
 from pydantic import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from loguru import logger
 
 
 class IdentitySettings(BaseSettings):
@@ -25,9 +29,14 @@ class IdentitySettings(BaseSettings):
     # --- JWT / Security ---
     jwt_issuer: str = "http://identity-service:8000"
     jwt_audience: str = "fintech-platform"
-    secret_key: str = "change-me"
     access_token_expires_minutes: int = 15
     refresh_token_expires_minutes: int = 1440
+    jwt_key_id: str = "ledgerlink-dev"
+    jwt_private_key: str | None = None
+    jwt_public_key: str | None = None
+    jwt_private_key_path: str | None = None
+    jwt_public_key_path: str | None = None
+    jwt_keys_dir: str = "services/identity_service/app/keys"
     # Login policy
     max_failed_login_attempts: int = 5
     lockout_minutes: int = 15
@@ -51,6 +60,18 @@ class IdentitySettings(BaseSettings):
         """Return string form of sync database URL for Alembic or testing."""
         return str(self.database_sync_url)
 
+    @property
+    def private_key_path(self) -> Path:
+        if self.jwt_private_key_path:
+            return Path(self.jwt_private_key_path)
+        return Path(self.jwt_keys_dir) / "jwt_private.pem"
+
+    @property
+    def public_key_path(self) -> Path:
+        if self.jwt_public_key_path:
+            return Path(self.jwt_public_key_path)
+        return Path(self.jwt_keys_dir) / "jwt_public.pem"
+
     def safe_dict(self) -> dict[str, str]:
         """Return non-sensitive settings for debug logs."""
         return {
@@ -59,6 +80,7 @@ class IdentitySettings(BaseSettings):
             "database_host": self.database_url.host,
             "redis_host": self.redis_url.host,
             "jwt_issuer": self.jwt_issuer,
+            "jwt_key_id": self.jwt_key_id,
             "otel_endpoint": self.otel_endpoint,
         }
 

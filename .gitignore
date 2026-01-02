@@ -16,3 +16,4 @@ build/
 # Ignore internal documentation
 docs/internal/
 fintech_platform.egg-info/
+services/identity_service/app/keys/

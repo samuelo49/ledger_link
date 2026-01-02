@@ -1,14 +1,16 @@
 from datetime import datetime, timedelta, timezone
 import secrets
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from jose import jwt, JWTError
+from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.security import create_token, hash_password, verify_password
+from ..core.keys import build_jwk
+from ..core.security import create_token, hash_password, verify_password, decode_token
 from ..dependencies import get_session
-from ..models import User
+from ..models import User, RefreshToken
 from ..schemas import (
     LoginRequest,
     RefreshRequest,
@@ -31,8 +33,34 @@ from ..metrics import (
     password_reset_request_total,
     password_reset_confirm_total,
 )
+from ..services.refresh_tokens import (
+    create_refresh_token_record,
+    get_refresh_token,
+    hash_token,
+    revoke_refresh_token,
+)
 
 router = APIRouter(prefix="/auth")
+
+
+async def _mint_refresh_token(session: AsyncSession, user: User, refresh_delta: timedelta) -> tuple[str, UUID]:
+    refresh_id = uuid4()
+    refresh_token = create_token(
+        str(user.id),
+        scope="refresh",
+        expires_delta=refresh_delta,
+        token_type="refresh",
+        jti=str(refresh_id),
+    )
+    expires_at = datetime.now(tz=timezone.utc) + refresh_delta
+    await create_refresh_token_record(
+        session,
+        token_id=refresh_id,
+        user_id=user.id,
+        refresh_token=refresh_token,
+        expires_at=expires_at,
+    )
+    return refresh_token, refresh_id
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -88,12 +116,7 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
     access_delta = timedelta(minutes=settings.access_token_expires_minutes)
     refresh_delta = timedelta(minutes=settings.refresh_token_expires_minutes)
     access_token = create_token(str(user.id), scope="access", expires_delta=access_delta, token_type="access")
-    refresh_token = create_token(
-        str(user.id),
-        scope="refresh",
-        expires_delta=refresh_delta,
-        token_type="refresh",
-    )
+    refresh_token, _ = await _mint_refresh_token(session, user, refresh_delta)
 
     user.last_login_at = datetime.now(tz=timezone.utc)
     user.failed_login_attempts = 0
@@ -106,68 +129,103 @@ async def login(payload: LoginRequest, session: AsyncSession = Depends(get_sessi
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=int(access_delta.total_seconds()),
+        refresh_expires_in=int(refresh_delta.total_seconds()),
     )
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh(payload: RefreshRequest) -> Token:
+async def refresh(payload: RefreshRequest, session: AsyncSession = Depends(get_session)) -> Token:
     settings = identity_settings()
     try:
-        decoded = jwt.decode(
-            payload.refresh_token,
-            settings.secret_key,
-            algorithms=["HS256"],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
-        )
+        decoded = decode_token(payload.refresh_token, expected_scope="refresh", token_type="refresh")
     except JWTError as exc:
         token_refresh_total.labels(outcome="invalid_token").inc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
-    if decoded.get("scope") != "refresh":
-        token_refresh_total.labels(outcome="invalid_scope").inc()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token scope")
+
+    token_id = decoded.get("jti")
+    if not token_id:
+        token_refresh_total.labels(outcome="invalid_token").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing jti")
+
+    try:
+        token_uuid = UUID(token_id)
+    except ValueError as exc:
+        token_refresh_total.labels(outcome="invalid_token").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token identifier") from exc
+
+    token_record = await get_refresh_token(session, token_uuid)
+    if not token_record:
+        token_refresh_total.labels(outcome="revoked").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is not recognized")
+
+    if token_record.revoked_at:
+        token_refresh_total.labels(outcome="revoked").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is revoked")
+
+    now = datetime.now(tz=timezone.utc)
+    if token_record.expires_at <= now:
+        token_refresh_total.labels(outcome="expired").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+
+    if token_record.token_hash != hash_token(payload.refresh_token):
+        token_refresh_total.labels(outcome="invalid_token").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token signature mismatch")
+
+    user = await session.get(User, int(decoded["sub"]))
+    if not user or not user.is_active:
+        token_refresh_total.labels(outcome="invalid_user").inc()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or missing")
+
     access_delta = timedelta(minutes=settings.access_token_expires_minutes)
     refresh_delta = timedelta(minutes=settings.refresh_token_expires_minutes)
-    user_id = decoded["sub"]
-    access_token = create_token(user_id, scope="access", expires_delta=access_delta, token_type="access")
-    refresh_token = create_token(
-        user_id,
-        scope="refresh",
-        expires_delta=refresh_delta,
-        token_type="refresh",
-    )
+    access_token = create_token(str(user.id), scope="access", expires_delta=access_delta, token_type="access")
+    new_refresh_token, replacement_id = await _mint_refresh_token(session, user, refresh_delta)
+    await revoke_refresh_token(session, token_record, replaced_by=replacement_id)
+    await session.commit()
+
     token_refresh_total.labels(outcome="success").inc()
     return Token(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=new_refresh_token,
         expires_in=int(access_delta.total_seconds()),
+        refresh_expires_in=int(refresh_delta.total_seconds()),
     )
 
 
 @router.get("/me", response_model=UserResponse)
 async def me(request: Request, session: AsyncSession = Depends(get_session)) -> UserResponse:
-    settings = identity_settings()
     auth = request.headers.get("authorization")
     if not auth or not auth.lower().startswith("bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     token = auth.split(" ", 1)[1].strip()
     try:
-        decoded = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=["HS256"],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
-        )
+        decoded = decode_token(token, expected_scope="access", token_type="access")
     except JWTError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
-    if decoded.get("scope") != "access":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token scope")
     user_id = decoded.get("sub")
     user = await session.get(User, int(user_id))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return UserResponse.model_validate(user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(payload: RefreshRequest, session: AsyncSession = Depends(get_session)) -> None:
+    try:
+        decoded = decode_token(payload.refresh_token, expected_scope="refresh", token_type="refresh")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+    token_id = decoded.get("jti")
+    if not token_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing identifier")
+    try:
+        token_uuid = UUID(token_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token identifier")
+    token_record = await get_refresh_token(session, token_uuid)
+    if token_record:
+        await revoke_refresh_token(session, token_record)
+        await session.commit()
 
 
 @router.post("/verification/request", response_model=VerificationTokenResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -231,3 +289,9 @@ async def password_reset_confirm(payload: PasswordResetConfirmRequest, session: 
     session.add(user)
     await session.commit()
     password_reset_confirm_total.labels(outcome="success").inc()
+
+
+@router.get("/jwks")
+async def jwks() -> dict[str, list[dict[str, str]]]:
+    """Expose the public signing keys for downstream services."""
+    return {"keys": [build_jwk()]}

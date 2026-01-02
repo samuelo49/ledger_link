@@ -213,10 +213,13 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Payments confirmation now calls the risk engine before debiting wallets; declines/reviews abort confirmation with clear HTTP errors.
 - Added optional wallet risk hooks (`WALLET_RISK_CHECKS_ENABLED`) to prepare future direct wallet flows to reuse the same risk service.
 
+### Day 13
+- Upgraded Identity tokens to RS256, added an auto-generated RSA key pair with JWKS exposure, and switched services to consume/validate tokens via cached JWKS instead of shared secrets.
+- Implemented refresh-token rotation with a persistent `refresh_tokens` table plus logout-driven revocation to block replays.
+- Added async pytest coverage to exercise registration/login, refresh rotation, logout, and JWKS responses against an in-memory database.
+
 ## 🧰 Future Improvements
-- Switch Identity → RS256 with JWKS; validate access tokens in services without shared secrets.
-- Refresh token rotation with replay detection; consider a token store for revocation.
-- Sign JWTs with key rotation (kid headers) and add a JWKS endpoint.
+- Sign JWTs with automated key rotation (multiple `kid` values) and publish a JWKS history.
 - External email/SMS delivery for verification and password reset.
 - Expose `/metrics` on all services; expand Grafana dashboards; OTEL metrics.
 - Strengthen gateway rate limiting and add request-level correlation IDs.
