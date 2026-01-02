@@ -238,6 +238,6 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Sign JWTs with automated key rotation (multiple `kid` values) and publish a JWKS history.
 - External email/SMS delivery for verification and password reset.
 - Expand Grafana dashboards and OTEL metrics coverage now that all services expose `/api/v1/metrics`.
-- Strengthen gateway rate limiting and add request-level correlation IDs.
+- Strengthen gateway rate limiting and improve request correlation (e.g., consistent `x-request-id` + trace/log linkage).
 - Buildx layer caching and parallelized image builds to speed up CI.
 - Expand pytest coverage across services with DB fixtures and async test harness.
