@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PaymentIntentCreate(BaseModel):
@@ -18,8 +18,7 @@ class PaymentIntentResponse(BaseModel):
     currency: str
     status: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PaymentIntentConfirmRequest(BaseModel):
