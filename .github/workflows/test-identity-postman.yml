@@ -28,8 +28,11 @@ jobs:
 
       - name: Prepare .env for CI
         run: |
-          # Create a minimal .env so docker compose env_file doesn't fail
-          touch .env
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start services
         run: |
@@ -72,8 +75,11 @@ jobs:
 
       - name: Prepare .env for CI
         run: |
-          # Create a minimal .env so docker compose env_file doesn't fail
-          touch .env
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start gateway (and dependencies)
         run: |
@@ -116,8 +122,11 @@ jobs:
 
       - name: Prepare .env for CI
         run: |
-          # Create a minimal .env so docker compose env_file doesn't fail
-          touch .env
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start services
         run: |
@@ -160,8 +169,11 @@ jobs:
 
       - name: Prepare .env for CI
         run: |
-          # Create a minimal .env so docker compose env_file doesn't fail
-          touch .env
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start gateway (and dependencies)
         run: |
@@ -204,7 +216,11 @@ jobs:
 
       - name: Prepare .env for CI
         run: |
-          touch .env
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start gateway (and dependencies)
         run: |
@@ -245,7 +261,12 @@ jobs:
         run: npm install -g newman
 
       - name: Prepare .env for CI
-        run: touch .env
+        run: |
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
 
       - name: Start risk service
         run: |
