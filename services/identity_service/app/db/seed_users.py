@@ -4,14 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.user import User
-from ..core.security import pwd_context
+from ..core.security import hash_password
 from ..db.session import async_session_factory
 from ..settings import identity_settings
-
-
-def get_password_hash(password: str) -> str:
-    """Generate a bcrypt hash using the shared security context."""
-    return pwd_context.hash(password)
 
 
 async def seed_default_admin():
@@ -34,7 +29,7 @@ async def seed_default_admin():
 
         new_admin = User(
             email=admin_email,
-            hashed_password=get_password_hash(admin_password),
+            hashed_password=hash_password(admin_password),
             is_active=True,
             is_superuser=is_superuser,
         )

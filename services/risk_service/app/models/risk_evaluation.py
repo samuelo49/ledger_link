@@ -27,7 +27,7 @@ class RiskEvaluation(Base):
     decision: Mapped[RiskDecision] = mapped_column(SqlEnum(RiskDecision), nullable=False)
     risk_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     triggered_rules: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)
+    event_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

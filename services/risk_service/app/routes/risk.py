@@ -40,15 +40,8 @@ async def get_evaluation(evaluation_id: UUID, session: SessionDep) -> RiskEvalua
 
 @router.post("/evaluations", response_model=RiskEvaluationResponse, status_code=status.HTTP_201_CREATED)
 async def evaluate(payload: RiskEvaluationRequest, session: SessionDep) -> RiskEvaluationResponse:
-    rules_stmt = (
-        select(RiskRule)
-        .where(
-            RiskRule.enabled.is_(True),
-            RiskRule.event_types.contains([payload.event_type]),
-        )
-        .order_by(RiskRule.id)
-    )
-    rules = list(await session.scalars(rules_stmt))
+    rules_stmt = select(RiskRule).where(RiskRule.enabled.is_(True)).order_by(RiskRule.id)
+    rules = [rule for rule in await session.scalars(rules_stmt) if payload.event_type in (rule.event_types or [])]
     engine = RiskEngine(rules)
     ctx = EvaluationContext(
         event_type=payload.event_type,
@@ -69,7 +62,7 @@ async def evaluate(payload: RiskEvaluationRequest, session: SessionDep) -> RiskE
         decision=result.decision,
         risk_score=result.risk_score,
         triggered_rules=[asdict(rule) for rule in result.triggered_rules],
-        metadata=ctx.metadata,
+        event_metadata=ctx.metadata,
     )
     session.add(evaluation)
     await session.commit()

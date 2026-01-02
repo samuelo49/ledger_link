@@ -29,11 +29,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("name", sa.String(length=120), nullable=False, unique=True),
         sa.Column("description", sa.Text(), nullable=False, server_default=""),
-        sa.Column(
-            "event_types",
-            postgresql.ARRAY(sa.String(length=64)),
-            nullable=False,
-        ),
+        sa.Column("event_types", sa.JSON(), nullable=False),
         sa.Column("rule_type", riskruletype, nullable=False),
         sa.Column("action", riskdecision, nullable=False),
         sa.Column("config", sa.JSON(), nullable=True),

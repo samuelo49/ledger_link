@@ -20,7 +20,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Payments Service", version="0.1.0", lifespan=lifespan)
-    app.include_router(payment_intents_router)
+    app.include_router(payment_intents_router, prefix="/api/v1")
 
     @app.get("/api/v1/healthz")
     async def healthz() -> dict[str, str]:  # noqa: D401

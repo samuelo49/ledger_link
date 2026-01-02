@@ -3,12 +3,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import AsyncGenerator
 
-from services.wallet_service.app.db.session import async_session_factory
 from services.wallet_service.app.models import Wallet, LedgerEntry, EntryType
 from services.wallet_service.app.schemas import (
     WalletCreate,
@@ -16,7 +15,7 @@ from services.wallet_service.app.schemas import (
     MoneyChangeRequest,
     BalanceResponse,
 )
-from services.wallet_service.app.dependencies import get_current_user_id
+from services.wallet_service.app.dependencies import get_current_user_id, get_session
 from services.wallet_service.app.metrics import (
     wallet_credit_total,
     wallet_debit_total,
@@ -24,15 +23,9 @@ from services.wallet_service.app.metrics import (
     wallet_insufficient_funds_total,
 )
 from services.wallet_service.app.settings import wallet_settings
-import httpx
 
 
 router = APIRouter()
-
-
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session_factory() as session:
-        yield session
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -84,13 +77,19 @@ async def _enforce_wallet_risk(
 
 
 @router.post("/", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
-async def create_wallet(payload: WalletCreate, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
+async def create_wallet(
+    payload: WalletCreate,
+    session: SessionDep,
+    response: Response,
+    current_user_id: int = Depends(get_current_user_id),
+) -> WalletResponse:
     # Enforce one wallet per (owner, currency)
     existing = await session.execute(
         select(Wallet).where(Wallet.owner_user_id == current_user_id, Wallet.currency == payload.currency)
     )
     if (row := existing.scalar_one_or_none()) is not None:
         # Idempotent create: return existing
+        response.status_code = status.HTTP_200_OK
         return WalletResponse(
             id=row.id,
             owner_user_id=row.owner_user_id,
@@ -102,7 +101,6 @@ async def create_wallet(payload: WalletCreate, session: SessionDep, current_user
     wallet = Wallet(owner_user_id=current_user_id, currency=payload.currency)
     session.add(wallet)
     await session.commit()
-    await session.refresh(wallet)
     return WalletResponse(
         id=wallet.id,
         owner_user_id=wallet.owner_user_id,
@@ -163,8 +161,6 @@ async def _apply_money_change(
     )
     session.add(entry)
     await session.flush()
-    await session.commit()
-    await session.refresh(wallet)
     if kind == EntryType.debit:
         wallet_debit_total.labels(currency=wallet.currency).inc()
     else:

@@ -4,13 +4,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from ..settings import identity_settings
 from .keys import get_private_key, get_public_key
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def create_token(
@@ -56,8 +54,12 @@ def decode_token(token: str, *, expected_scope: str | None = None, token_type: s
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")

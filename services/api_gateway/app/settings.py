@@ -16,7 +16,12 @@ class GatewaySettings(BaseSettings):
 
     Resolution precedence: environment variables > .env file > code defaults.
     """
-    model_config = SettingsConfigDict(env_prefix="GATEWAY_", env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_prefix="GATEWAY_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     service_name: str = "api-gateway"
     port: int = 8080

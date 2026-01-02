@@ -1,16 +1,37 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
+from typing import AsyncGenerator
+
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from .settings import wallet_settings
+ROOT_DIR = Path(__file__).resolve().parents[3]
+SHARED_SRC = ROOT_DIR / "libs" / "shared" / "src"
+if str(SHARED_SRC) not in sys.path:
+    sys.path.append(str(SHARED_SRC))
+
 from shared import JWKSClient
+
+from .db.session import async_session_factory
+from .settings import wallet_settings
 
 logger = logging.getLogger(__name__)
 
 ACCEPTED_SCOPES = {"access", "wallet_access"}
 jwks_client = JWKSClient(wallet_settings().jwks_url, cache_ttl=300)
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a transactional session for request-scoped database work."""
+    session = async_session_factory()
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 def get_current_user_id(request: Request) -> int:

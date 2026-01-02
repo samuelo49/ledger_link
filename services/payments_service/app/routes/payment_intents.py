@@ -3,19 +3,18 @@ from __future__ import annotations
 from typing import Annotated
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.session import async_session_factory
 from ..models.payment_intent import PaymentIntent, PaymentIntentStatus
 from ..schemas.payment_intent import (
     PaymentIntentCreate,
     PaymentIntentResponse,
     PaymentIntentConfirmRequest,
 )
-from ..dependencies import get_current_user_id
+from ..dependencies import get_current_user_id, get_session
 from ..metrics import (
     payment_intent_created_total,
     payment_intent_confirmed_total,
@@ -26,11 +25,6 @@ from ..metrics import (
 from ..settings import payments_settings
 
 router = APIRouter(prefix="/payments/intents", tags=["payment-intents"])
-
-
-async def get_session():
-    async with async_session_factory() as session:
-        yield session
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

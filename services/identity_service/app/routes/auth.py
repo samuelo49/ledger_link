@@ -43,6 +43,13 @@ from ..services.refresh_tokens import (
 router = APIRouter(prefix="/auth")
 
 
+def _as_utc(dt: datetime) -> datetime:
+    """Normalize datetimes from SQLite (naive) or Postgres (aware) into UTC for comparisons."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 async def _mint_refresh_token(session: AsyncSession, user: User, refresh_delta: timedelta) -> tuple[str, UUID]:
     refresh_id = uuid4()
     refresh_token = create_token(
@@ -163,7 +170,8 @@ async def refresh(payload: RefreshRequest, session: AsyncSession = Depends(get_s
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is revoked")
 
     now = datetime.now(tz=timezone.utc)
-    if token_record.expires_at <= now:
+    expires_at = _as_utc(token_record.expires_at)
+    if expires_at <= now:
         token_refresh_total.labels(outcome="expired").inc()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 

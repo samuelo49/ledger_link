@@ -5,7 +5,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, JSON, String, Text, func
-from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
@@ -30,9 +29,7 @@ class RiskRule(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    event_types: Mapped[list[str]] = mapped_column(
-        ARRAY(String(64)), nullable=False, default=list
-    )
+    event_types: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     rule_type: Mapped[RiskRuleType] = mapped_column(SqlEnum(RiskRuleType), nullable=False)
     action: Mapped[RiskDecision] = mapped_column(SqlEnum(RiskDecision), nullable=False)
     config: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=dict)

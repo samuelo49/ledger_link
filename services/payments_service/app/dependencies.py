@@ -1,13 +1,33 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+from typing import AsyncGenerator
+
 from fastapi import Depends, HTTPException, Request, status
-from jose import jwt, JWTError
+from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+SHARED_SRC = ROOT_DIR / "libs" / "shared" / "src"
+if str(SHARED_SRC) not in sys.path:
+    sys.path.append(str(SHARED_SRC))
 
 from shared import JWKSClient
 
+from .db.session import async_session_factory
 from .settings import payments_settings
 
 jwks_client = JWKSClient(payments_settings().jwks_url, cache_ttl=300)
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a scoped AsyncSession for request handlers."""
+    session = async_session_factory()
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 def get_current_user_id(request: Request) -> int:
