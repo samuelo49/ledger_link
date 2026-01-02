@@ -8,6 +8,9 @@ from typing import Callable
 from fastapi import FastAPI, Request, Response
 from loguru import logger
 
+from shared.errors import error_response
+from shared.request_context import REQUEST_ID_HEADER
+
 from .settings import gateway_settings
 
 
@@ -33,12 +36,12 @@ class SlidingWindowLimiter:
 
 def request_id_middleware() -> Callable:
     async def middleware(request: Request, call_next: Callable) -> Response:
-        request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        request_id = request.headers.get(REQUEST_ID_HEADER, str(uuid.uuid4()))
         request.state.request_id = request_id
         start = time.time()
         response = await call_next(request)
         elapsed = (time.time() - start) * 1000
-        response.headers["x-request-id"] = request_id
+        response.headers[REQUEST_ID_HEADER] = request_id
         logger.bind(request_id=request_id).info(
             "Gateway %s %s %s %.2fms",
             request.method,
@@ -55,7 +58,13 @@ def rate_limit_middleware(limiter: SlidingWindowLimiter) -> Callable:
     async def middleware(request: Request, call_next: Callable) -> Response:
         client_id = request.headers.get("x-api-key") or request.client.host or "anonymous"
         if not limiter.allow(client_id):
-            return Response(status_code=429, content="Too Many Requests")
+            request_id = getattr(request.state, "request_id", None)
+            return error_response(
+                status_code=429,
+                error="Too Many Requests",
+                detail="Rate limit exceeded",
+                request_id=request_id,
+            )
         return await call_next(request)
 
     return middleware

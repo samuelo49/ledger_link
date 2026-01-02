@@ -1,5 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+SHARED_SRC = ROOT_DIR / "libs" / "shared" / "src"
+if str(SHARED_SRC) not in sys.path:
+    sys.path.append(str(SHARED_SRC))
+
+from shared.request_context import RequestIDMiddleware
+from shared.errors import http_exception_handler, unhandled_exception_handler
 
 from .routes import register_routes
 from .startup import setup_instrumentation, setup_logging, init_service_startup, shutdown_instrumentation
@@ -21,7 +31,9 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Identity Service", version="0.1.0", lifespan=lifespan)
     # Initialize instrumentation such as metrics, tracing, or monitoring
     setup_instrumentation(app)
-    # Register all API routes/endpoints with the app
+    app.add_middleware(RequestIDMiddleware)
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
     register_routes(app)
     return app
 

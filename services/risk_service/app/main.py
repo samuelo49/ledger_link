@@ -1,5 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
+from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+SHARED_SRC = ROOT_DIR / "libs" / "shared" / "src"
+if str(SHARED_SRC) not in sys.path:
+    sys.path.append(str(SHARED_SRC))
+
+from shared.request_context import RequestIDMiddleware
+from shared.errors import http_exception_handler, unhandled_exception_handler
 
 from .settings import risk_settings
 from .alembic_helper import run_alembic_migrations
@@ -26,6 +36,9 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Risk Service", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(RequestIDMiddleware)
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
     app.include_router(system_router)
     app.include_router(risk_router)
     return app

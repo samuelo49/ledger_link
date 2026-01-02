@@ -31,6 +31,18 @@ LedgerLink is a modular, cloud‑native fintech backend built with FastAPI, Post
 
 ---
 
+## ✅ Highlights & Progress
+- Full FastAPI service suite (gateway, identity, wallet, payments, risk) with isolated Postgres schemas, Redis integration, and OTEL instrumentation.
+- Identity service upgraded to RS256 + JWKS with refresh rotation, logout revocation, and async pytest coverage.
+- Wallet service delivers row-locked credit/debit flows with idempotency, Prometheus metrics, and JWT-validated ownership.
+- Payments service orchestrates intents, risk decisions, and wallet debits with async test coverage.
+- Risk service ships a rules engine, seedable ruleset, and REST evaluation endpoints consumed by payments and wallet domains.
+- Shared library centralizes request-id middleware, JWKS client, schemas, and structured error handlers.
+- GitHub Actions now runs `uv run --extra dev pytest …` via `backend-tests` and keeps Newman Postman jobs for gateway + direct smoke tests (identity, wallet, payments, risk).
+- Dockerized Postman collections cover direct identity flows, gateway auth, extended identity flows, wallet via gateway, payments via gateway, and direct risk evaluations.
+- Observability parity: every service exposes `/api/v1/healthz` and `/api/v1/metrics`, with Grafana/Prometheus/Jaeger wired via Docker Compose.
+- Developer docs: ADRs, architecture diagrams, Marp slides, and runbooks kept current with the above changes.
+
 ## 🧩 Core Domains
 | Service | Description |
 |----------|--------------|
@@ -133,13 +145,15 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 ## 🧩 Current Focus
 - [x] Identity v1 endpoints shipped (register, token/refresh, me, verification, password reset)
 - [x] E2E coverage via Postman + CI (direct and gateway base, direct extended)
+- [x] uv-based pytest suites run in CI (backend-tests workflow) for identity, gateway, wallet, payments, and risk
 - [x] Co-located Alembic migrations with startup upgrade + seeding
 - [x] API Gateway proxies for identity extended flows (me/verification/reset)
 - [x] Wallet service v1: models, migrations, endpoints (create/credit/debit/balance) with idempotency and row locking
 - [x] Wallet auth at service boundary (JWT validate, owner derived from token)
 - [x] Wallet Postman flow via gateway + CI job
 - [x] Expose /metrics on wallet service with Prometheus counters
-- [ ] Expose /metrics on remaining services and wire Prometheus dashboards
+- [x] Expose /metrics on remaining services and wire Prometheus dashboards
+- [x] Standardized request-id middleware and JSON error responses across gateway + all services
 
 ## 🧠 Lessons / Insights
 - Alembic "config not found" was solved by co-locating `alembic.ini`, `env.py`, and `versions/` inside each service and doing programmatic upgrades on startup.
@@ -217,11 +231,13 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Upgraded Identity tokens to RS256, added an auto-generated RSA key pair with JWKS exposure, and switched services to consume/validate tokens via cached JWKS instead of shared secrets.
 - Implemented refresh-token rotation with a persistent `refresh_tokens` table plus logout-driven revocation to block replays.
 - Added async pytest coverage to exercise registration/login, refresh rotation, logout, and JWKS responses against an in-memory database.
+- CI: Added a dedicated `backend-tests` workflow that installs uv, syncs dev extras, and runs pytest suites (identity/gateway/wallet/payments/risk) to complement the Newman smoke tests.
+- Shared library now provides request-id middleware and structured error handlers; gateway and every service emit consistent `{error, detail, request_id}` JSON responses while forwarding/assigning `x-request-id`.
 
 ## 🧰 Future Improvements
 - Sign JWTs with automated key rotation (multiple `kid` values) and publish a JWKS history.
 - External email/SMS delivery for verification and password reset.
-- Expose `/metrics` on all services; expand Grafana dashboards; OTEL metrics.
+- Expand Grafana dashboards and OTEL metrics coverage now that all services expose `/metrics`.
 - Strengthen gateway rate limiting and add request-level correlation IDs.
 - Buildx layer caching and parallelized image builds to speed up CI.
 - Expand pytest coverage across services with DB fixtures and async test harness.
