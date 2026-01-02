@@ -1,4 +1,9 @@
 PYTHON ?= python3
+TEST_TARGETS ?= services/identity_service/tests \
+	services/api_gateway/tests \
+	services/wallet_service/tests \
+	services/payments_service/tests \
+	services/risk_service/tests
 
 .PHONY: bootstrap
 bootstrap:
@@ -58,7 +63,7 @@ format:
 
 .PHONY: test
 test:
-	uv run pytest -q
+	uv run --extra dev pytest $(TEST_TARGETS)
 
 .PHONY: generate-openapi
 generate-openapi:
