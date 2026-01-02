@@ -2,7 +2,7 @@
 
 <div align="center">
 
-LedgerLink is a modular, cloud‑native fintech backend built with FastAPI, PostgreSQL, and Redis — designed to power secure payment flows, digital wallets, and risk analytics across distributed services.
+LedgerLink is a modular, cloud‑native fintech backend built with FastAPI and PostgreSQL, with Redis included for local development (caching/streams integration planned) — designed to power secure payment flows, digital wallets, and risk analytics across distributed services.
 
 <br/>
 
@@ -32,40 +32,41 @@ LedgerLink is a modular, cloud‑native fintech backend built with FastAPI, Post
 ---
 
 ## ✅ Highlights & Progress
-- Full FastAPI service suite (gateway, identity, wallet, payments, risk) with isolated Postgres schemas, Redis integration, and OTEL instrumentation.
+- Full FastAPI service suite (gateway, identity, wallet, payments, risk) with isolated Postgres schemas, Redis included in Compose (integration/streams planned), and OTEL instrumentation.
 - Identity service upgraded to RS256 + JWKS with refresh rotation, logout revocation, and async pytest coverage.
 - Wallet service delivers row-locked credit/debit flows with idempotency, Prometheus metrics, and JWT-validated ownership.
 - Payments service orchestrates intents, risk decisions, and wallet debits with async test coverage.
 - Risk service ships a rules engine, seedable ruleset, and REST evaluation endpoints consumed by payments and wallet domains.
-- Shared library centralizes request-id middleware, JWKS client, schemas, and structured error handlers.
-- GitHub Actions now runs `uv run --extra dev pytest …` via `backend-tests` and keeps Newman Postman jobs for gateway + direct smoke tests (identity, wallet, payments, risk).
-- Dockerized Postman collections cover direct identity flows, gateway auth, extended identity flows, wallet via gateway, payments via gateway, and direct risk evaluations.
+- Shared library provides request-id middleware, JWKS client, schemas, and structured error handlers (gateway assigns/forwards `x-request-id`).
+- GitHub Actions runs `make test` (uv + pytest) via `backend-tests` and runs Newman Postman jobs for Identity (direct + via gateway) and Wallet (via gateway).
+- Dockerized Postman collections exist for identity, wallet, payments, and risk (CI currently runs identity + wallet).
 - Observability parity: every service exposes `/api/v1/healthz` and `/api/v1/metrics`, with Grafana/Prometheus/Jaeger wired via Docker Compose.
 - Developer docs: ADRs, architecture diagrams, Marp slides, and runbooks kept current with the above changes.
 
 ## 🧩 Core Domains
 | Service | Description |
 |----------|--------------|
-| **API Gateway** | Ingress and routing layer handling request aggregation, rate limiting, and observability. |
+| **API Gateway** | Ingress and routing layer handling proxy routing, rate limiting, and observability. |
 | **Identity Service** | OAuth2/JWT authentication, RBAC, and session management. |
 | **Wallet Service** | Double-entry ledger and wallet operations with transaction integrity. |
-| **Payments Service** | Payment intent lifecycle, orchestration, and webhook handling. |
+| **Payments Service** | Payment intent lifecycle and orchestration (webhooks planned). |
 | **Risk Service** | Rules engine and risk scoring for fraud detection and compliance. |
 | **Shared Library** | Common Pydantic schemas, middleware, and utilities across all services. |
 
+
 ---
 
-## � Tech Stack (at a glance)
+## 🧰 Tech Stack (at a glance)
 
 - Languages & Runtimes: Python 3.11+, asyncio
 - Frameworks: FastAPI, Pydantic v2
 - Data & Migrations: PostgreSQL 16, SQLAlchemy 2.x, Alembic
 - Caching/Queue: Redis 7 (ElastiCache‑ready)
-- Auth & Security: OAuth2/JWT (python‑jose HS256), Passlib[bcrypt]
+- Auth & Security: OAuth2/JWT (RS256 + JWKS via python‑jose), Passlib[bcrypt]
 - Packaging & Build: Docker & Compose, Astral uv (uv.lock)
-- CI/CD: GitHub Actions (Newman E2E, Marp slide export)
+- CI/CD: GitHub Actions (pytest via `backend-tests`, Newman E2E, Marp slide export)
 - Observability: OpenTelemetry, Prometheus, Grafana, Jaeger
-- API & Testing: OpenAPI/Swagger, Postman/Newman, pytest (planned)
+- API & Testing: OpenAPI/Swagger, Postman/Newman, pytest
 - Docs & DX: ADRs, diagrams (Excalidraw+SVG), slides (Marp), runbooks
 
 Quick links:
@@ -76,9 +77,10 @@ Quick links:
 - Runbooks: `docs/runbooks/`
 - ADRs: `adr/`
 
+
 ---
 
-## �🧱 Architecture Overview
+## 🧱 Architecture Overview
 - **Language:** Python (FastAPI)
 - **Databases:** PostgreSQL per service (via AWS RDS)
 - **Cache & Queue:** Redis (AWS ElastiCache)
@@ -136,23 +138,21 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 
 ---
 
----
-
 # LedgerLink Developer Notes
 
 > Internal engineering notes and daily learnings — not for public release.
 
 ## 🧩 Current Focus
 - [x] Identity v1 endpoints shipped (register, token/refresh, me, verification, password reset)
-- [x] E2E coverage via Postman + CI (direct and gateway base, direct extended)
+- [x] E2E coverage via Postman + CI for Identity (direct + gateway) and Wallet (via gateway)
 - [x] uv-based pytest suites run in CI (backend-tests workflow) for identity, gateway, wallet, payments, and risk
 - [x] Co-located Alembic migrations with startup upgrade + seeding
 - [x] API Gateway proxies for identity extended flows (me/verification/reset)
 - [x] Wallet service v1: models, migrations, endpoints (create/credit/debit/balance) with idempotency and row locking
 - [x] Wallet auth at service boundary (JWT validate, owner derived from token)
 - [x] Wallet Postman flow via gateway + CI job
-- [x] Expose /metrics on wallet service with Prometheus counters
-- [x] Expose /metrics on remaining services and wire Prometheus dashboards
+- [x] Expose /api/v1/metrics on wallet service with Prometheus counters
+- [x] Expose /api/v1/metrics on remaining services and wire Prometheus dashboards
 - [x] Standardized request-id middleware and JSON error responses across gateway + all services
 
 ## 🧠 Lessons / Insights
@@ -182,9 +182,9 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 
 ### Day 5
 - API Gateway base:
-	- Proxies for auth (register/token/refresh) with base URL setting
-	- Health endpoint under /api/v1/healthz
-	- Rate limiting and x-request-id middleware
+  - Proxies for auth (register/token/refresh) with base URL setting
+  - Health endpoint under /api/v1/healthz
+  - Rate limiting and x-request-id middleware
 - Authored base Postman collection and local environments (direct and gateway)
 
 ### Day 6
@@ -205,19 +205,19 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 
 ### Day 10
 - Extended API Gateway:
-	- Added wallet and payments proxy routers; configured wallet_base_url and payments_base_url
-	- Routed identity extended flows (me/verification/reset) through the gateway
-	- Added module/function docstrings for clarity (internal code docs)
-	- Note: Payments service endpoints are not implemented yet; gateway proxies are in place
+  - Added wallet and payments proxy routers; configured wallet_base_url and payments_base_url
+  - Routed identity extended flows (me/verification/reset) through the gateway
+  - Added module/function docstrings for clarity (internal code docs)
+  - Payments service endpoints are implemented (payment intents + confirmation orchestration); gateway proxies are in place
 
 ### Day 11
 - Implemented Wallet service v1:
-	- SQLAlchemy models: Wallet, LedgerEntry; constraints, indexes, and (wallet_id, idempotency_key) uniqueness.
-	- Alembic migration creating wallets and ledger_entries tables.
-	- Endpoints: POST /wallets, POST /wallets/{id}/credit, POST /wallets/{id}/debit, GET /wallets/{id}/balance.
-	- Transactional balance updates with SELECT … FOR UPDATE; idempotent mutations; 409 on insufficient funds.
-	- Minimal auth at boundary: validate JWT (issuer/audience/scope) and derive owner from token subject.
-- Added Prometheus metrics and /metrics endpoint for wallet (credit/debit/idempotency/insufficient_funds counters).
+  - SQLAlchemy models: Wallet, LedgerEntry; constraints, indexes, and (wallet_id, idempotency_key) uniqueness.
+  - Alembic migration creating wallets and ledger_entries tables.
+  - Endpoints: POST /wallets, POST /wallets/{id}/credit, POST /wallets/{id}/debit, GET /wallets/{id}/balance.
+  - Transactional balance updates with SELECT … FOR UPDATE; idempotent mutations; 409 on insufficient funds.
+  - Minimal auth at boundary: validate JWT (issuer/audience/scope) and derive owner from token subject.
+- Added Prometheus metrics and /api/v1/metrics endpoint for wallet (credit/debit/idempotency/insufficient_funds counters).
 - Authored Postman collection to run register → token → create wallet → credit → debit → balance via gateway.
 - CI: Added a gateway Wallet job to run the new collection; added a Makefile target to run the flow locally with dockerized Newman.
 
@@ -237,7 +237,7 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 ## 🧰 Future Improvements
 - Sign JWTs with automated key rotation (multiple `kid` values) and publish a JWKS history.
 - External email/SMS delivery for verification and password reset.
-- Expand Grafana dashboards and OTEL metrics coverage now that all services expose `/metrics`.
+- Expand Grafana dashboards and OTEL metrics coverage now that all services expose `/api/v1/metrics`.
 - Strengthen gateway rate limiting and add request-level correlation IDs.
 - Buildx layer caching and parallelized image builds to speed up CI.
 - Expand pytest coverage across services with DB fixtures and async test harness.
