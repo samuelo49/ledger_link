@@ -1,0 +1,208 @@
+{
+  "info": {
+    "name": "Payments via Gateway (Local)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "f742b7a9-5d87-4c50-9f71-payments-gw-local"
+  },
+  "item": [
+    {
+      "name": "Register",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "url": {"raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.environment.get('email')) { pm.environment.set('email', `payer+${Date.now()}@example.com`); }",
+              "if (!pm.environment.get('password')) { pm.environment.set('password', 'Passw0rd!'); }"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"created or conflict\", function () { pm.expect([201,409]).to.include(pm.response.code); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "url": {"raw": "{{baseUrl}}/auth/token", "host": ["{{baseUrl}}"], "path": ["auth", "token"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"login ok\", function () { pm.expect(pm.response.code).to.equal(200); });",
+              "var json = pm.response.json();",
+              "pm.environment.set('access_token', json.access_token);",
+              "pm.environment.set('refresh_token', json.refresh_token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets", "host": ["{{baseUrl}}"], "path": ["wallets"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currency\": \"USD\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"wallet created or exists\", function () { pm.expect([200,201]).to.include(pm.response.code); });",
+              "var json = pm.response.json();",
+              "pm.environment.set('wallet_id', json.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Credit Wallet",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/wallets/{{wallet_id}}/credit", "host": ["{{baseUrl}}"], "path": ["wallets", "{{wallet_id}}", "credit"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 150.00,\n  \"idempotency_key\": \"credit-payments\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"wallet credited\", function () { pm.expect(pm.response.code).to.equal(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create Payment Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/payments/intents", "host": ["{{baseUrl}}"], "path": ["payments", "intents"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"wallet_id\": {{wallet_id}},\n  \"amount\": \"25.00\",\n  \"currency\": \"USD\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"intent created\", function () { pm.expect(pm.response.code).to.equal(201); });",
+              "var json = pm.response.json();",
+              "pm.environment.set('intent_id', json.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Confirm Payment Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"},
+          {"key": "x-risk-ip-country", "value": "US"},
+          {"key": "x-user-country", "value": "US"}
+        ],
+        "url": {"raw": "{{baseUrl}}/payments/intents/{{intent_id}}/confirm", "host": ["{{baseUrl}}"], "path": ["payments", "intents", "{{intent_id}}", "confirm"]}
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"intent confirmed\", function () { pm.expect(pm.response.code).to.equal(200); });",
+              "var json = pm.response.json();",
+              "pm.expect(json.status).to.eql('confirmed');"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Payment Intent",
+      "request": {
+        "method": "GET",
+        "header": [
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/payments/intents/{{intent_id}}", "host": ["{{baseUrl}}"], "path": ["payments", "intents", "{{intent_id}}"]}
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"intent status confirmed\", function () {",
+              "  var json = pm.response.json();",
+              "  pm.expect(json.status).to.eql('confirmed');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {"key": "email", "value": "payer+{{randomInt}}@example.com"},
+    {"key": "password", "value": "Passw0rd!"}
+  ]
+}

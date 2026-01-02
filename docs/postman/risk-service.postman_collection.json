@@ -1,0 +1,76 @@
+{
+  "info": {
+    "name": "Risk Service (Local)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "3e9b5f87-5cf7-4688-93d4-risk-direct-local"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": {"raw": "{{baseUrl}}/healthz", "host": ["{{baseUrl}}"], "path": ["healthz"]}
+      },
+      "event": [
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    "pm.test(\"risk healthy\", function () { pm.expect(pm.response.code).to.equal(200); });",
+                    "var json = pm.response.json();",
+                    "pm.expect(json.status).to.eql('ok');"
+                ]
+            }
+        }
+      ]
+    },
+    {
+      "name": "List Rules",
+      "request": {
+        "method": "GET",
+        "url": {"raw": "{{baseUrl}}/risk/rules", "host": ["{{baseUrl}}"], "path": ["risk", "rules"]}
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"rules returned\", function () { pm.expect(pm.response.code).to.equal(200); });",
+              "var json = pm.response.json();",
+              "pm.expect(json.length).to.be.above(0);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Evaluate Payment Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"}
+        ],
+        "url": {"raw": "{{baseUrl}}/risk/evaluations", "host": ["{{baseUrl}}"], "path": ["risk", "evaluations"]},
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"payment_intent_confirm\",\n  \"subject_id\": \"pi-ci\",\n  \"user_id\": \"user-ci\",\n  \"amount\": \"100.00\",\n  \"currency\": \"USD\",\n  \"metadata\": {\n    \"ip_country\": \"US\",\n    \"user_country\": \"US\",\n    \"email_domain\": \"example.com\"\n  }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"risk approve\", function () { pm.expect(pm.response.code).to.equal(201); });",
+              "var json = pm.response.json();",
+              "pm.expect(json.decision).to.eql('approve');"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
