@@ -17,6 +17,7 @@ class PaymentIntentResponse(BaseModel):
     amount: Decimal
     currency: str
     status: str
+    hold_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

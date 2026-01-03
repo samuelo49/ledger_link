@@ -100,7 +100,8 @@ async def confirm_intent(
         await session.refresh(intent)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Payment pending manual review")
 
-    await _debit_wallet_with_retry(intent, auth_header, settings)
+    hold_id = await _ensure_hold(intent, auth_header, settings, session)
+    await _capture_hold(intent, hold_id, auth_header, settings)
 
     intent.status = PaymentIntentStatus.confirmed.value
     session.add(intent)
@@ -158,13 +159,13 @@ async def _evaluate_risk(intent: PaymentIntent, request: Request, settings) -> d
     return data
 
 
-async def _debit_wallet_with_retry(intent: PaymentIntent, auth_header: str | None, settings) -> None:
-    wallet_debit_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/debit"
-    debit_payload = {
-        "amount": str(intent.amount),
-        "idempotency_key": f"pi-confirm-{intent.id}",
-        "details": {"payment_intent_id": intent.id},
-    }
+async def _post_wallet_with_retry(
+    url: str,
+    payload: dict,
+    auth_header: str | None,
+    settings,
+    operation: str,
+) -> httpx.Response:
     timeout = httpx.Timeout(settings.wallet_timeout_seconds, read=settings.wallet_timeout_seconds)
     headers = {"Authorization": auth_header} if auth_header else {}
     last_reason = "unknown"
@@ -172,25 +173,67 @@ async def _debit_wallet_with_retry(intent: PaymentIntent, auth_header: str | Non
         start = perf_counter()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(wallet_debit_url, json=debit_payload, headers=headers)
+                response = await client.post(url, json=payload, headers=headers)
         except httpx.TimeoutException:
             last_reason = "timeout"
-            payment_intent_wallet_debit_failures_total.labels(reason="timeout").inc()
+            payment_intent_wallet_debit_failures_total.labels(reason=f"{operation}_timeout").inc()
         except httpx.HTTPError:
             last_reason = "network"
-            payment_intent_wallet_debit_failures_total.labels(reason="network").inc()
+            payment_intent_wallet_debit_failures_total.labels(reason=f"{operation}_network").inc()
         else:
             duration = perf_counter() - start
             wallet_debit_latency_seconds.observe(duration)
             if response.status_code < 400:
-                return
+                return response
             last_reason = f"status_{response.status_code}"
-            payment_intent_wallet_debit_failures_total.labels(reason=last_reason).inc()
+            payment_intent_wallet_debit_failures_total.labels(reason=f"{operation}_{response.status_code}").inc()
 
         if attempt < settings.wallet_retry_attempts:
             await asyncio.sleep(settings.wallet_retry_backoff_seconds * attempt)
 
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail=f"Wallet debit failed ({last_reason})",
+        detail=f"Wallet {operation} failed ({last_reason})",
     )
+
+
+async def _ensure_hold(
+    intent: PaymentIntent,
+    auth_header: str | None,
+    settings,
+    session: AsyncSession,
+) -> int:
+    if intent.hold_id:
+        return intent.hold_id
+
+    create_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/holds"
+    payload = {
+        "amount": str(intent.amount),
+        "idempotency_key": f"pi-hold-{intent.id}",
+        "reference": f"pi-{intent.id}",
+        "details": {"payment_intent_id": intent.id, "type": "payment_hold"},
+    }
+    response = await _post_wallet_with_retry(create_url, payload, auth_header, settings, operation="hold_create")
+    data = response.json()
+    hold_id = data.get("id")
+    if hold_id is None:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Wallet hold response missing id")
+
+    intent.hold_id = hold_id
+    session.add(intent)
+    await session.commit()
+    await session.refresh(intent)
+    return hold_id
+
+
+async def _capture_hold(intent: PaymentIntent, hold_id: int, auth_header: str | None, settings) -> None:
+    capture_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/holds/{hold_id}/capture"
+    payload = {"idempotency_key": f"pi-hold-capture-{intent.id}"}
+    response = await _post_wallet_with_retry(capture_url, payload, auth_header, settings, operation="hold_capture")
+    data = response.json()
+    status_value = data.get("status")
+    if status_value not in {"captured", "released"}:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected wallet hold state ({status_value})",
+        )

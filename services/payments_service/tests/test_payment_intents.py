@@ -65,10 +65,13 @@ async def payments_test_app(monkeypatch):
     state: dict[str, str | int | list[int] | None] = {
         "risk_decision": "approve",
         "risk_status": 200,
-        "wallet_status": 200,
         "risk_error": None,
-        "wallet_attempt_responses": None,
-        "wallet_attempts": 0,
+        "hold_create_statuses": None,
+        "hold_capture_statuses": None,
+        "hold_attempts": 0,
+        "capture_attempts": 0,
+        "hold_id": None,
+        "next_hold_id": 1,
     }
 
     async def handler(method: str, url: str, **kwargs) -> httpx.Response:
@@ -86,14 +89,36 @@ async def payments_test_app(monkeypatch):
                 request=httpx.Request(method, url),
             )
         if "wallet-service" in url:
-            state["wallet_attempts"] = int(state.get("wallet_attempts", 0)) + 1
-            sequence = state.get("wallet_attempt_responses")
-            if sequence:
-                idx = min(state["wallet_attempts"] - 1, len(sequence) - 1)
-                status = sequence[idx]
-            else:
-                status = state["wallet_status"]
-            return httpx.Response(status, json={"ok": True}, request=httpx.Request(method, url))
+            request_obj = httpx.Request(method, url)
+            if "/capture" in url:
+                state["capture_attempts"] = int(state.get("capture_attempts", 0)) + 1
+                sequence = state.get("hold_capture_statuses")
+                if sequence:
+                    idx = min(state["capture_attempts"] - 1, len(sequence) - 1)
+                    status_code = sequence[idx]
+                else:
+                    status_code = 200
+                body = {"status": "captured"} if status_code < 400 else {"detail": "capture-failed"}
+                return httpx.Response(status_code, json=body, request=request_obj)
+
+            if "/holds" in url:
+                state["hold_attempts"] = int(state.get("hold_attempts", 0)) + 1
+                sequence = state.get("hold_create_statuses")
+                if sequence:
+                    idx = min(state["hold_attempts"] - 1, len(sequence) - 1)
+                    status_code = sequence[idx]
+                else:
+                    status_code = 201
+                if status_code < 400:
+                    if not state.get("hold_id"):
+                        state["hold_id"] = state["next_hold_id"]
+                        state["next_hold_id"] = int(state["next_hold_id"]) + 1
+                    body = {"id": state["hold_id"], "status": "active"}
+                else:
+                    body = {"detail": "hold-failed"}
+                return httpx.Response(status_code, json=body, request=request_obj)
+
+            raise RuntimeError(f"Unhandled wallet URL {url}")
         raise RuntimeError(f"Unhandled URL {url}")
 
     monkeypatch.setattr(
@@ -121,6 +146,7 @@ async def test_confirm_intent_success(payments_test_app):
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 200
         assert response.json()["status"] == "confirmed"
+        assert response.json()["hold_id"] is not None
 
 
 @pytest.mark.asyncio
@@ -158,10 +184,9 @@ async def test_confirm_requires_review(payments_test_app):
 
 
 @pytest.mark.asyncio
-async def test_wallet_debit_failure_propagates(payments_test_app):
+async def test_hold_creation_failure_propagates(payments_test_app):
     app, state = payments_test_app
-    state["risk_decision"] = "approve"
-    state["wallet_status"] = 409
+    state["hold_create_statuses"] = [500]
     async with _asgi_client(app) as client:
         create = await client.post(
             "/api/v1/payments/intents",
@@ -171,12 +196,13 @@ async def test_wallet_debit_failure_propagates(payments_test_app):
         intent_id = create.json()["id"]
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 409
+        assert state["hold_attempts"] == payments_settings_module.payments_settings().wallet_retry_attempts
 
 
 @pytest.mark.asyncio
-async def test_wallet_retry_eventually_succeeds(payments_test_app):
+async def test_hold_retry_eventually_succeeds(payments_test_app):
     app, state = payments_test_app
-    state["wallet_attempt_responses"] = [500, 200]
+    state["hold_create_statuses"] = [500, 201]
     async with _asgi_client(app) as client:
         create = await client.post(
             "/api/v1/payments/intents",
@@ -185,7 +211,37 @@ async def test_wallet_retry_eventually_succeeds(payments_test_app):
         intent_id = create.json()["id"]
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 200
-        assert state["wallet_attempts"] == 2
+        assert state["hold_attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_capture_retry_eventually_succeeds(payments_test_app):
+    app, state = payments_test_app
+    state["hold_capture_statuses"] = [500, 200]
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "80.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert response.status_code == 200
+        assert state["capture_attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_capture_failure_bubbles_up(payments_test_app):
+    app, state = payments_test_app
+    state["hold_capture_statuses"] = [500, 500, 500]
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "85.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert response.status_code == 409
+        assert state["capture_attempts"] == payments_settings_module.payments_settings().wallet_retry_attempts
 
 
 @pytest.mark.asyncio

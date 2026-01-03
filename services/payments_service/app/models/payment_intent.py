@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
-from sqlalchemy import String, Numeric, text
+from sqlalchemy import String, Numeric, text, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import BaseModel
@@ -32,3 +32,5 @@ class PaymentIntent(BaseModel):
         nullable=False,
         server_default=text("'pending'"),
     )
+
+    hold_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
