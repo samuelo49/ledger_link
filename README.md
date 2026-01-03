@@ -36,6 +36,7 @@ LedgerLink is a modular, cloud‑native fintech backend built with FastAPI and P
 - Identity service upgraded to RS256 + JWKS with refresh rotation, logout revocation, and async pytest coverage.
 - Wallet service delivers row-locked credit/debit flows with idempotency, Prometheus metrics, and JWT-validated ownership.
 - Payments service orchestrates intents, risk decisions, and wallet debits with async test coverage.
+- Payment intent confirmation saga enforces risk timeouts, wallet retry/backoff, explicit status transitions (pending/confirmed/declined/review), and idempotent downstream calls with pytest coverage.
 - Risk service ships a rules engine, seedable ruleset, and REST evaluation endpoints consumed by payments and wallet domains.
 - Shared library provides request-id middleware, JWKS client, schemas, and structured error handlers (gateway assigns/forwards `x-request-id`).
 - GitHub Actions runs `make test` (uv + pytest) via `backend-tests` and runs Newman Postman jobs for Identity (direct + via gateway) and Wallet (via gateway).
@@ -233,6 +234,10 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - Added async pytest coverage to exercise registration/login, refresh rotation, logout, and JWKS responses against an in-memory database.
 - CI: Added a dedicated `backend-tests` workflow that installs uv, syncs dev extras, and runs pytest suites (identity/gateway/wallet/payments/risk) to complement the Newman smoke tests.
 - Shared library now provides request-id middleware and structured error handlers; gateway and every service emit consistent `{error, detail, request_id}` JSON responses while forwarding/assigning `x-request-id`.
+
+### Day 14
+- Hardened the payment confirm saga: risk calls include timeouts + idempotency keys, wallet debits use bounded retries/backoff, and `PaymentIntent` statuses now record `pending/confirmed/review/declined`.
+- Added pytest coverage for risk declines/reviews/timeouts and wallet retry behavior with stubbed `httpx.AsyncClient`.
 
 ## 🧰 Future Improvements
 - Sign JWTs with automated key rotation (multiple `kid` values) and publish a JWKS history.

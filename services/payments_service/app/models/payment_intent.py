@@ -13,6 +13,8 @@ from ..db.base import BaseModel
 class PaymentIntentStatus(str, Enum):
     pending = "pending"
     confirmed = "confirmed"
+    declined = "declined"
+    review = "review"
     canceled = "canceled"
 
 

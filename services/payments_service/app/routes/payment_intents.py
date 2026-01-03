@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 from time import perf_counter
+import asyncio
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -77,7 +78,8 @@ async def confirm_intent(
     if not intent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Intent not found")
     if intent.status != PaymentIntentStatus.pending.value:
-        return PaymentIntentResponse.model_validate(intent)  # idempotent confirm
+        # Idempotent confirms return the current status (confirmed/review/declined)
+        return PaymentIntentResponse.model_validate(intent)
 
     # Debit wallet via wallet service using same bearer token for ownership enforcement
     settings = payments_settings()
@@ -86,32 +88,19 @@ async def confirm_intent(
     risk_result = await _evaluate_risk(intent, request, settings)
     decision = risk_result.get("decision")
     if decision == "decline":
+        intent.status = PaymentIntentStatus.declined.value
+        session.add(intent)
+        await session.commit()
+        await session.refresh(intent)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Payment declined by risk engine")
     if decision == "review":
+        intent.status = PaymentIntentStatus.review.value
+        session.add(intent)
+        await session.commit()
+        await session.refresh(intent)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Payment pending manual review")
 
-    wallet_debit_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/debit"
-    debit_payload = {
-        "amount": str(intent.amount),
-        "idempotency_key": f"pi-confirm-{intent.id}",
-        "details": {"payment_intent_id": intent.id},
-    }
-    timeout = httpx.Timeout(10.0, read=20.0)
-    upstream: httpx.Response | None = None
-    start = perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            upstream = await client.post(wallet_debit_url, json=debit_payload, headers={"Authorization": auth_header})
-    except httpx.HTTPError as exc:  # noqa: BLE001
-        payment_intent_wallet_debit_failures_total.labels(reason="network").inc()
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Wallet debit unreachable") from exc
-    finally:
-        duration = perf_counter() - start
-        wallet_debit_latency_seconds.observe(duration)
-    assert upstream is not None  # mypy/type checker guard
-    if upstream.status_code >= 400:
-        payment_intent_wallet_debit_failures_total.labels(reason=f"status_{upstream.status_code}").inc()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Wallet debit failed")
+    await _debit_wallet_with_retry(intent, auth_header, settings)
 
     intent.status = PaymentIntentStatus.confirmed.value
     session.add(intent)
@@ -137,9 +126,21 @@ async def _evaluate_risk(intent: PaymentIntent, request: Request, settings) -> d
         "metadata": {k: v for k, v in metadata.items() if v},
     }
     risk_url = f"{settings.risk_base_url}/evaluations"
-    timeout = httpx.Timeout(10.0, read=20.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(risk_url, json=risk_payload)
+    timeout = httpx.Timeout(settings.risk_timeout_seconds, read=settings.risk_timeout_seconds)
+    headers = {"Idempotency-Key": f"pi-risk-{intent.id}"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(risk_url, json=risk_payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Risk evaluation timed out",
+        ) from exc
+    except httpx.HTTPError as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Risk service unreachable",
+        ) from exc
     if response.status_code >= 500:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -155,3 +156,41 @@ async def _evaluate_risk(intent: PaymentIntent, request: Request, settings) -> d
     if decision:
         payment_intent_risk_decision_total.labels(decision=decision).inc()
     return data
+
+
+async def _debit_wallet_with_retry(intent: PaymentIntent, auth_header: str | None, settings) -> None:
+    wallet_debit_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/debit"
+    debit_payload = {
+        "amount": str(intent.amount),
+        "idempotency_key": f"pi-confirm-{intent.id}",
+        "details": {"payment_intent_id": intent.id},
+    }
+    timeout = httpx.Timeout(settings.wallet_timeout_seconds, read=settings.wallet_timeout_seconds)
+    headers = {"Authorization": auth_header} if auth_header else {}
+    last_reason = "unknown"
+    for attempt in range(1, settings.wallet_retry_attempts + 1):
+        start = perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(wallet_debit_url, json=debit_payload, headers=headers)
+        except httpx.TimeoutException:
+            last_reason = "timeout"
+            payment_intent_wallet_debit_failures_total.labels(reason="timeout").inc()
+        except httpx.HTTPError:
+            last_reason = "network"
+            payment_intent_wallet_debit_failures_total.labels(reason="network").inc()
+        else:
+            duration = perf_counter() - start
+            wallet_debit_latency_seconds.observe(duration)
+            if response.status_code < 400:
+                return
+            last_reason = f"status_{response.status_code}"
+            payment_intent_wallet_debit_failures_total.labels(reason=last_reason).inc()
+
+        if attempt < settings.wallet_retry_attempts:
+            await asyncio.sleep(settings.wallet_retry_backoff_seconds * attempt)
+
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"Wallet debit failed ({last_reason})",
+    )

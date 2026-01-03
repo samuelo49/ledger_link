@@ -22,6 +22,10 @@ class PaymentsSettings(BaseSettings):
     jwt_issuer: str = "http://identity-service:8000"
     risk_base_url: str = "http://risk-service:8000/api/v1/risk"
     jwks_url: str = "http://identity-service:8000/api/v1/auth/jwks"
+    risk_timeout_seconds: float = 5.0
+    wallet_timeout_seconds: float = 5.0
+    wallet_retry_attempts: int = 3
+    wallet_retry_backoff_seconds: float = 0.5
 
     @property
     def async_db_url(self) -> str:

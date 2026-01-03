@@ -62,14 +62,22 @@ async def payments_test_app(monkeypatch):
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user_id] = _override_current_user
 
-    state: dict[str, str | int] = {
+    state: dict[str, str | int | list[int] | None] = {
         "risk_decision": "approve",
         "risk_status": 200,
         "wallet_status": 200,
+        "risk_error": None,
+        "wallet_attempt_responses": None,
+        "wallet_attempts": 0,
     }
 
     async def handler(method: str, url: str, **kwargs) -> httpx.Response:
         if "risk-service" in url:
+            if state.get("risk_error") == "timeout":
+                raise httpx.ReadTimeout(
+                    "timeout",
+                    request=httpx.Request(method, url),
+                )
             decision = state["risk_decision"]
             status = state["risk_status"]
             return httpx.Response(
@@ -78,7 +86,13 @@ async def payments_test_app(monkeypatch):
                 request=httpx.Request(method, url),
             )
         if "wallet-service" in url:
-            status = state["wallet_status"]
+            state["wallet_attempts"] = int(state.get("wallet_attempts", 0)) + 1
+            sequence = state.get("wallet_attempt_responses")
+            if sequence:
+                idx = min(state["wallet_attempts"] - 1, len(sequence) - 1)
+                status = sequence[idx]
+            else:
+                status = state["wallet_status"]
             return httpx.Response(status, json={"ok": True}, request=httpx.Request(method, url))
         raise RuntimeError(f"Unhandled URL {url}")
 
@@ -122,6 +136,8 @@ async def test_confirm_blocked_by_risk(payments_test_app):
         intent_id = create.json()["id"]
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 403
+        current = await client.get(f"/api/v1/payments/intents/{intent_id}")
+        assert current.json()["status"] == "declined"
 
 
 @pytest.mark.asyncio
@@ -137,6 +153,8 @@ async def test_confirm_requires_review(payments_test_app):
         intent_id = create.json()["id"]
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 409
+        current = await client.get(f"/api/v1/payments/intents/{intent_id}")
+        assert current.json()["status"] == "review"
 
 
 @pytest.mark.asyncio
@@ -153,3 +171,32 @@ async def test_wallet_debit_failure_propagates(payments_test_app):
         intent_id = create.json()["id"]
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_wallet_retry_eventually_succeeds(payments_test_app):
+    app, state = payments_test_app
+    state["wallet_attempt_responses"] = [500, 200]
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "75.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert response.status_code == 200
+        assert state["wallet_attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_risk_timeout_returns_504(payments_test_app):
+    app, state = payments_test_app
+    state["risk_error"] = "timeout"
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "20.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert response.status_code == 504
