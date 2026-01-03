@@ -177,6 +177,35 @@
       ]
     },
     {
+      "name": "Cancel Payment Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Authorization", "value": "Bearer {{access_token}}"}
+        ],
+        "url": {"raw": "{{baseUrl}}/payments/intents/{{intent_id}}/cancel", "host": ["{{baseUrl}}"], "path": ["payments", "intents", "{{intent_id}}", "cancel"]}
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"intent cancelled or already closed\", function () { pm.expect([200,409]).to.include(pm.response.code); });",
+              "if (pm.response.code === 200) {",
+              "  var json = pm.response.json();",
+              "  pm.expect(['pending','review','canceled']).to.include(json.status);",
+              "  pm.environment.set('intent_status', json.status);",
+              "} else {",
+              "  pm.expect(pm.response.json().detail).to.contain('longer be canceled');",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "Get Payment Intent",
       "request": {
         "method": "GET",

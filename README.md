@@ -35,12 +35,12 @@ LedgerLink is a modular, cloud‑native fintech backend built with FastAPI and P
 - Full FastAPI service suite (gateway, identity, wallet, payments, risk) with isolated Postgres schemas, Redis included in Compose (integration/streams planned), and OTEL instrumentation.
 - Identity service upgraded to RS256 + JWKS with refresh rotation, logout revocation, and async pytest coverage.
 - Wallet service delivers row-locked credit/debit flows with idempotency, Prometheus metrics, and JWT-validated ownership.
-- Payments service orchestrates intents, risk decisions, and wallet debits with async test coverage.
+- Payments service orchestrates intents, risk decisions, wallet holds/captures, and now exposes a cancel endpoint that releases reserved funds, all with async test coverage.
 - Payment intent confirmation saga enforces risk timeouts, wallet retry/backoff, explicit status transitions (pending/confirmed/declined/review), and idempotent downstream calls with pytest coverage.
 - Risk service ships a rules engine, seedable ruleset, and REST evaluation endpoints consumed by payments and wallet domains.
 - Shared library provides request-id middleware, JWKS client, schemas, and structured error handlers (gateway assigns/forwards `x-request-id`).
 - GitHub Actions runs `make test` (uv + pytest) via `backend-tests` and runs Newman Postman jobs for Identity (direct + via gateway) and Wallet (via gateway).
-- Dockerized Postman collections exist for identity, wallet, payments, and risk (CI currently runs identity + wallet).
+- Dockerized Postman collections exist for identity, wallet, payments, and risk (CI currently runs identity + wallet) — payments collection now includes a “Cancel Payment Intent” helper to release stuck holds manually.
 - Observability parity: every service exposes `/api/v1/healthz` and `/api/v1/metrics`, with Grafana/Prometheus/Jaeger wired via Docker Compose.
 - Developer docs: ADRs, architecture diagrams, Marp slides, and runbooks kept current with the above changes.
 
@@ -155,6 +155,7 @@ Detailed architecture notes, ADRs, and operational runbooks are available in the
 - [x] Expose /api/v1/metrics on wallet service with Prometheus counters
 - [x] Expose /api/v1/metrics on remaining services and wire Prometheus dashboards
 - [x] Standardized request-id middleware and JSON error responses across gateway + all services
+- [x] Payments intents expose hold-backed cancel endpoint + Postman helper to release stuck holds
 
 ## 🧠 Lessons / Insights
 - Alembic "config not found" was solved by co-locating `alembic.ini`, `env.py`, and `versions/` inside each service and doing programmatic upgrades on startup.
