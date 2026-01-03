@@ -109,6 +109,35 @@ async def confirm_intent(
     await session.refresh(intent)
     payment_intent_confirmed_total.labels(currency=intent.currency).inc()
     return PaymentIntentResponse.model_validate(intent)
+
+
+@router.post("/{intent_id}/cancel", response_model=PaymentIntentResponse)
+async def cancel_intent(
+    intent_id: int,
+    request: Request,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> PaymentIntentResponse:
+    intent = await session.scalar(
+        select(PaymentIntent).where(PaymentIntent.id == intent_id, PaymentIntent.user_id == current_user_id)
+    )
+    if not intent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Intent not found")
+    if intent.status == PaymentIntentStatus.canceled.value:
+        return PaymentIntentResponse.model_validate(intent)
+    if intent.status not in {PaymentIntentStatus.pending.value, PaymentIntentStatus.review.value}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Intent can no longer be canceled")
+
+    settings = payments_settings()
+    auth_header = request.headers.get("authorization")
+    if intent.hold_id:
+        await _release_hold(intent, intent.hold_id, auth_header, settings)
+
+    intent.status = PaymentIntentStatus.canceled.value
+    session.add(intent)
+    await session.commit()
+    await session.refresh(intent)
+    return PaymentIntentResponse.model_validate(intent)
 async def _evaluate_risk(intent: PaymentIntent, request: Request, settings) -> dict:
     metadata = {
         "wallet_id": intent.wallet_id,
@@ -236,4 +265,17 @@ async def _capture_hold(intent: PaymentIntent, hold_id: int, auth_header: str | 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Unexpected wallet hold state ({status_value})",
+        )
+
+
+async def _release_hold(intent: PaymentIntent, hold_id: int, auth_header: str | None, settings) -> None:
+    release_url = f"http://wallet-service:8000/api/v1/wallets/{intent.wallet_id}/holds/{hold_id}/release"
+    payload = {"idempotency_key": f"pi-hold-release-{intent.id}"}
+    response = await _post_wallet_with_retry(release_url, payload, auth_header, settings, operation="hold_release")
+    data = response.json()
+    status_value = data.get("status")
+    if status_value not in {"released"}:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unexpected wallet hold release state ({status_value})",
         )

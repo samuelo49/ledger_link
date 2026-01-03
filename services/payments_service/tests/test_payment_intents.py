@@ -70,8 +70,10 @@ async def payments_test_app(monkeypatch):
         "hold_capture_statuses": None,
         "hold_attempts": 0,
         "capture_attempts": 0,
+        "release_attempts": 0,
         "hold_id": None,
         "next_hold_id": 1,
+        "hold_release_statuses": None,
     }
 
     async def handler(method: str, url: str, **kwargs) -> httpx.Response:
@@ -90,6 +92,16 @@ async def payments_test_app(monkeypatch):
             )
         if "wallet-service" in url:
             request_obj = httpx.Request(method, url)
+            if "/release" in url:
+                state["release_attempts"] = int(state.get("release_attempts", 0)) + 1
+                sequence = state.get("hold_release_statuses")
+                if sequence:
+                    idx = min(state["release_attempts"] - 1, len(sequence) - 1)
+                    status_code = sequence[idx]
+                else:
+                    status_code = 200
+                body = {"status": "released"} if status_code < 400 else {"detail": "release-failed"}
+                return httpx.Response(status_code, json=body, request=request_obj)
             if "/capture" in url:
                 state["capture_attempts"] = int(state.get("capture_attempts", 0)) + 1
                 sequence = state.get("hold_capture_statuses")
@@ -242,6 +254,55 @@ async def test_capture_failure_bubbles_up(payments_test_app):
         response = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
         assert response.status_code == 409
         assert state["capture_attempts"] == payments_settings_module.payments_settings().wallet_retry_attempts
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_hold(payments_test_app):
+    app, _state = payments_test_app
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "45.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        response = await client.post(f"/api/v1/payments/intents/{intent_id}/cancel", json={})
+        assert response.status_code == 200
+        assert response.json()["status"] == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_releases_existing_hold(payments_test_app):
+    app, state = payments_test_app
+    state["hold_capture_statuses"] = [500, 500, 500]
+    state["hold_release_statuses"] = [200]
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "55.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        # Confirm fails after hold creation, leaving hold_id persisted
+        confirm = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert confirm.status_code == 409
+        cancel = await client.post(f"/api/v1/payments/intents/{intent_id}/cancel", json={})
+        assert cancel.status_code == 200
+        assert cancel.json()["status"] == "canceled"
+        assert state["release_attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_confirmation_disallowed(payments_test_app):
+    app, _state = payments_test_app
+    async with _asgi_client(app) as client:
+        create = await client.post(
+            "/api/v1/payments/intents",
+            json={"wallet_id": 1, "amount": "65.00", "currency": "USD"},
+        )
+        intent_id = create.json()["id"]
+        confirm = await client.post(f"/api/v1/payments/intents/{intent_id}/confirm", json={})
+        assert confirm.status_code == 200
+        cancel = await client.post(f"/api/v1/payments/intents/{intent_id}/cancel", json={})
+        assert cancel.status_code == 409
 
 
 @pytest.mark.asyncio
