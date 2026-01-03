@@ -33,3 +33,9 @@ class Wallet(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    holds = relationship(
+        "Hold",
+        back_populates="wallet",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )

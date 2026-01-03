@@ -3,6 +3,13 @@ from .wallet import (
     WalletResponse,
     MoneyChangeRequest,
     BalanceResponse,
+    TransferRequest,
+    TransferResponse,
+    HoldCreateRequest,
+    HoldResponse,
+    HoldActionRequest,
+    LedgerEntryItem,
+    StatementResponse,
 )
 
 __all__ = [
@@ -10,4 +17,11 @@ __all__ = [
     "WalletResponse",
     "MoneyChangeRequest",
     "BalanceResponse",
+    "TransferRequest",
+    "TransferResponse",
+    "HoldCreateRequest",
+    "HoldActionRequest",
+    "HoldResponse",
+    "LedgerEntryItem",
+    "StatementResponse",
 ]

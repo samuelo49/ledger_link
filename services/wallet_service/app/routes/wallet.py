@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Sequence
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.wallet_service.app.models import Wallet, LedgerEntry, EntryType
+from services.wallet_service.app.models import Wallet, LedgerEntry, EntryType, Hold, HoldStatus
 from services.wallet_service.app.schemas import (
     WalletCreate,
     WalletResponse,
     MoneyChangeRequest,
     BalanceResponse,
+    TransferRequest,
+    TransferResponse,
+    HoldCreateRequest,
+    HoldResponse,
+    HoldActionRequest,
+    LedgerEntryItem,
+    StatementResponse,
 )
 from services.wallet_service.app.dependencies import get_current_user_id, get_session
 from services.wallet_service.app.metrics import (
@@ -29,6 +36,49 @@ router = APIRouter()
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _wallet_response(wallet: Wallet) -> WalletResponse:
+    return WalletResponse(
+        id=wallet.id,
+        owner_user_id=wallet.owner_user_id,
+        currency=wallet.currency,
+        status=wallet.status,
+        balance=wallet.balance,
+    )
+
+
+def _hold_response(hold: Hold) -> HoldResponse:
+    return HoldResponse(
+        id=hold.id,
+        wallet_id=hold.wallet_id,
+        amount=hold.amount,
+        status=hold.status,
+        reference=hold.reference,
+        created_at=hold.created_at,
+        updated_at=hold.updated_at,
+    )
+
+
+async def _get_hold(
+    session: AsyncSession,
+    wallet_id: int,
+    hold_id: int,
+    current_user_id: int,
+    for_update: bool = False,
+) -> Hold:
+    stmt = (
+        select(Hold)
+        .join(Wallet, Wallet.id == Hold.wallet_id)
+        .where(Hold.id == hold_id, Hold.wallet_id == wallet_id, Wallet.owner_user_id == current_user_id)
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await session.execute(stmt)
+    hold = result.scalar_one_or_none()
+    if hold is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hold not found")
+    return hold
 
 
 def _extract_risk_metadata(request: Request) -> dict[str, str]:
@@ -83,31 +133,19 @@ async def create_wallet(
     response: Response,
     current_user_id: int = Depends(get_current_user_id),
 ) -> WalletResponse:
-    # Enforce one wallet per (owner, currency)
-    existing = await session.execute(
-        select(Wallet).where(Wallet.owner_user_id == current_user_id, Wallet.currency == payload.currency)
-    )
-    if (row := existing.scalar_one_or_none()) is not None:
-        # Idempotent create: return existing
-        response.status_code = status.HTTP_200_OK
-        return WalletResponse(
-            id=row.id,
-            owner_user_id=row.owner_user_id,
-            currency=row.currency,
-            status=row.status,
-            balance=row.balance,
+    if not payload.allow_additional:
+        # Enforce one wallet per (owner, currency) unless caller explicitly requests another
+        existing = await session.execute(
+            select(Wallet).where(Wallet.owner_user_id == current_user_id, Wallet.currency == payload.currency)
         )
+        if (row := existing.scalar_one_or_none()) is not None:
+            response.status_code = status.HTTP_200_OK
+            return _wallet_response(row)
 
     wallet = Wallet(owner_user_id=current_user_id, currency=payload.currency)
     session.add(wallet)
     await session.commit()
-    return WalletResponse(
-        id=wallet.id,
-        owner_user_id=wallet.owner_user_id,
-        currency=wallet.currency,
-        status=wallet.status,
-        balance=wallet.balance,
-    )
+    return _wallet_response(wallet)
 
 
 async def _apply_money_change(
@@ -119,7 +157,7 @@ async def _apply_money_change(
     details: dict | None,
     current_user_id: int,
     risk_metadata: dict | None = None,
-) -> Wallet:
+) -> tuple[Wallet, LedgerEntry]:
     # Lock the wallet row to prevent races
     result = await session.execute(
         select(Wallet).where(Wallet.id == wallet_id, Wallet.owner_user_id == current_user_id).with_for_update()
@@ -139,7 +177,7 @@ async def _apply_money_change(
         if (entry := existing.scalar_one_or_none()) is not None:
             # If an entry exists, consider operation idempotent and return current wallet state
             wallet_idempotency_replay_total.labels(currency=wallet.currency, type=kind.value).inc()
-            return wallet
+            return wallet, entry  # entry retrieved below but to satisfy type we set placeholder
 
     if kind == EntryType.debit:
         await _enforce_wallet_risk(wallet, amount, current_user_id, risk_metadata)
@@ -165,13 +203,13 @@ async def _apply_money_change(
         wallet_debit_total.labels(currency=wallet.currency).inc()
     else:
         wallet_credit_total.labels(currency=wallet.currency).inc()
-    return wallet
+    return wallet, entry
 
 
 @router.post("/{wallet_id}/credit", response_model=WalletResponse)
 async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Request, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
-        wallet = await _apply_money_change(
+        wallet, _ = await _apply_money_change(
             session,
             wallet_id,
             EntryType.credit,
@@ -181,19 +219,13 @@ async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Re
             current_user_id,
             _extract_risk_metadata(request),
         )
-    return WalletResponse(
-        id=wallet.id,
-        owner_user_id=wallet.owner_user_id,
-        currency=wallet.currency,
-        status=wallet.status,
-        balance=wallet.balance,
-    )
+    return _wallet_response(wallet)
 
 
 @router.post("/{wallet_id}/debit", response_model=WalletResponse)
 async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Request, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
-        wallet = await _apply_money_change(
+        wallet, _ = await _apply_money_change(
             session,
             wallet_id,
             EntryType.debit,
@@ -203,13 +235,7 @@ async def debit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Req
             current_user_id,
             _extract_risk_metadata(request),
         )
-    return WalletResponse(
-        id=wallet.id,
-        owner_user_id=wallet.owner_user_id,
-        currency=wallet.currency,
-        status=wallet.status,
-        balance=wallet.balance,
-    )
+    return _wallet_response(wallet)
 
 
 @router.get("/{wallet_id}/balance", response_model=BalanceResponse)
@@ -219,3 +245,205 @@ async def get_balance(wallet_id: int, session: SessionDep, current_user_id: int 
     if wallet is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
     return BalanceResponse(id=wallet.id, currency=wallet.currency, balance=wallet.balance)
+
+
+def _entry_item(entry: LedgerEntry) -> LedgerEntryItem:
+    return LedgerEntryItem(
+        id=entry.id,
+        type=EntryType(entry.type),
+        amount=entry.amount,
+        details=entry.details,
+        created_at=entry.created_at,
+    )
+
+
+@router.post("/{wallet_id}/transfers", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)
+async def transfer_between_wallets(
+    wallet_id: int,
+    payload: TransferRequest,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> TransferResponse:
+    if wallet_id == payload.target_wallet_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source and target wallet must differ")
+    async with session.begin():
+        # ensure deterministic lock order to avoid deadlocks
+        wallet_ids = sorted([wallet_id, payload.target_wallet_id])
+        locked: dict[int, Wallet] = {}
+        for wid in wallet_ids:
+            result = await session.execute(
+                select(Wallet).where(Wallet.id == wid, Wallet.owner_user_id == current_user_id).with_for_update()
+            )
+            wallet = result.scalar_one_or_none()
+            if wallet is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
+            locked[wid] = wallet
+
+        source = locked[wallet_id]
+        target = locked[payload.target_wallet_id]
+
+        if source.currency != target.currency or payload.currency != source.currency:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Currency mismatch")
+
+        existing = await session.execute(
+            select(LedgerEntry).where(
+                LedgerEntry.wallet_id == source.id,
+                LedgerEntry.idempotency_key == payload.idempotency_key,
+            ).limit(1)
+        )
+        entry = existing.scalar_one_or_none()
+        if entry is not None:
+            await session.refresh(source)
+            await session.refresh(target)
+            return TransferResponse(source_wallet=_wallet_response(source), target_wallet=_wallet_response(target))
+
+        transfer_details = {
+            "type": "transfer",
+            "target_wallet_id": target.id,
+            "description": payload.description,
+        }
+        reverse_details = {
+            "type": "transfer",
+            "source_wallet_id": source.id,
+            "description": payload.description,
+        }
+
+        source, _ = await _apply_money_change(
+            session,
+            source.id,
+            EntryType.debit,
+            payload.amount,
+            payload.idempotency_key,
+            transfer_details,
+            current_user_id,
+            risk_metadata=None,
+        )
+        target, _ = await _apply_money_change(
+            session,
+            target.id,
+            EntryType.credit,
+            payload.amount,
+            payload.idempotency_key,
+            reverse_details,
+            current_user_id,
+            risk_metadata=None,
+        )
+    return TransferResponse(source_wallet=_wallet_response(source), target_wallet=_wallet_response(target))
+
+
+@router.post("/{wallet_id}/holds", response_model=HoldResponse, status_code=status.HTTP_201_CREATED)
+async def create_hold(
+    wallet_id: int,
+    payload: HoldCreateRequest,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> HoldResponse:
+    async with session.begin():
+        existing = await session.execute(
+            select(Hold)
+            .where(Hold.wallet_id == wallet_id, Hold.idempotency_key == payload.idempotency_key)
+            .with_for_update()
+        )
+        if (hold := existing.scalar_one_or_none()) is not None:
+            return _hold_response(hold)
+
+        wallet, entry = await _apply_money_change(
+            session,
+            wallet_id,
+            EntryType.debit,
+            payload.amount,
+            payload.idempotency_key,
+            {"type": "hold", "reference": payload.reference},
+            current_user_id,
+        )
+        hold = Hold(
+            wallet_id=wallet.id,
+            amount=payload.amount,
+            status=HoldStatus.active.value,
+            idempotency_key=payload.idempotency_key,
+            reference=payload.reference,
+            details=payload.details,
+            ledger_entry_id=entry.id,
+        )
+        session.add(hold)
+        await session.flush()
+        await session.refresh(hold)
+        return _hold_response(hold)
+
+
+@router.post("/{wallet_id}/holds/{hold_id}/release", response_model=HoldResponse)
+async def release_hold(
+    wallet_id: int,
+    hold_id: int,
+    payload: HoldActionRequest,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> HoldResponse:
+    async with session.begin():
+        hold = await _get_hold(session, wallet_id, hold_id, current_user_id, for_update=True)
+        if hold.status == HoldStatus.captured.value:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Hold already captured")
+        if hold.status == HoldStatus.released.value:
+            return _hold_response(hold)
+
+        idem = payload.idempotency_key or f"hold-release-{hold.id}"
+        await _apply_money_change(
+            session,
+            wallet_id,
+            EntryType.credit,
+            hold.amount,
+            idem,
+            {"type": "hold_release", "hold_id": hold.id},
+            current_user_id,
+        )
+        hold.status = HoldStatus.released.value
+        session.add(hold)
+        await session.flush()
+        await session.refresh(hold)
+        return _hold_response(hold)
+
+
+@router.post("/{wallet_id}/holds/{hold_id}/capture", response_model=HoldResponse)
+async def capture_hold(
+    wallet_id: int,
+    hold_id: int,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> HoldResponse:
+    async with session.begin():
+        hold = await _get_hold(session, wallet_id, hold_id, current_user_id, for_update=True)
+        if hold.status == HoldStatus.released.value:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Hold already released")
+        if hold.status == HoldStatus.captured.value:
+            return _hold_response(hold)
+        hold.status = HoldStatus.captured.value
+        session.add(hold)
+        await session.flush()
+        await session.refresh(hold)
+        return _hold_response(hold)
+
+
+@router.get("/{wallet_id}/statements", response_model=StatementResponse)
+async def list_statements(
+    wallet_id: int,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+    limit: int = 50,
+    cursor: int | None = None,
+) -> StatementResponse:
+    limit = max(1, min(limit, 200))
+    wallet_result = await session.execute(
+        select(Wallet.id).where(Wallet.id == wallet_id, Wallet.owner_user_id == current_user_id)
+    )
+    if wallet_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
+
+    stmt = select(LedgerEntry).where(LedgerEntry.wallet_id == wallet_id).order_by(LedgerEntry.id.desc()).limit(limit)
+    if cursor:
+        stmt = stmt.where(LedgerEntry.id < cursor)
+    result = await session.execute(
+        stmt.join(Wallet, Wallet.id == LedgerEntry.wallet_id).where(Wallet.owner_user_id == current_user_id)
+    )
+    entries: Sequence[LedgerEntry] = result.scalars().all()
+    next_cursor = entries[-1].id if entries and len(entries) == limit else None
+    return StatementResponse(wallet_id=wallet_id, entries=[_entry_item(e) for e in entries], next_cursor=next_cursor)
