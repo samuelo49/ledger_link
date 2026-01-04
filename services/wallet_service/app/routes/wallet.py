@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from time import perf_counter
 from typing import Annotated, Sequence
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.wallet_service.app.models import Wallet, LedgerEntry, EntryType, Hold, HoldStatus
+from services.wallet_service.app.models import (
+    Wallet,
+    LedgerEntry,
+    EntryType,
+    Hold,
+    HoldStatus,
+    Transfer,
+    TransferStatus,
+    OutboxEvent,
+)
 from services.wallet_service.app.schemas import (
     WalletCreate,
     WalletResponse,
@@ -16,11 +26,13 @@ from services.wallet_service.app.schemas import (
     BalanceResponse,
     TransferRequest,
     TransferResponse,
+    TransferRecord,
     HoldCreateRequest,
     HoldResponse,
     HoldActionRequest,
     LedgerEntryItem,
     StatementResponse,
+    ReconciliationResponse,
 )
 from services.wallet_service.app.dependencies import get_current_user_id, get_session
 from services.wallet_service.app.metrics import (
@@ -28,6 +40,11 @@ from services.wallet_service.app.metrics import (
     wallet_debit_total,
     wallet_idempotency_replay_total,
     wallet_insufficient_funds_total,
+    wallet_transfer_created_total,
+    wallet_transfer_completed_total,
+    wallet_transfer_failed_total,
+    wallet_transfer_idempotent_total,
+    wallet_transfer_latency_seconds,
 )
 from services.wallet_service.app.settings import wallet_settings
 
@@ -36,6 +53,11 @@ router = APIRouter()
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _record_outbox_event(session: AsyncSession, event_type: str, payload: dict) -> None:
+    event = OutboxEvent(event_type=event_type, payload=payload)
+    session.add(event)
 
 
 def _wallet_response(wallet: Wallet) -> WalletResponse:
@@ -206,6 +228,19 @@ async def _apply_money_change(
     return wallet, entry
 
 
+async def _lock_wallets(session: AsyncSession, wallet_ids: list[int], current_user_id: int) -> dict[int, Wallet]:
+    locked: dict[int, Wallet] = {}
+    for wid in sorted(wallet_ids):
+        result = await session.execute(
+            select(Wallet).where(Wallet.id == wid, Wallet.owner_user_id == current_user_id).with_for_update()
+        )
+        wallet = result.scalar_one_or_none()
+        if wallet is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
+        locked[wid] = wallet
+    return locked
+
+
 @router.post("/{wallet_id}/credit", response_model=WalletResponse)
 async def credit_wallet(wallet_id: int, payload: MoneyChangeRequest, request: Request, session: SessionDep, current_user_id: int = Depends(get_current_user_id)) -> WalletResponse:
     async with session.begin():
@@ -257,6 +292,34 @@ def _entry_item(entry: LedgerEntry) -> LedgerEntryItem:
     )
 
 
+def _transfer_record(transfer: Transfer) -> TransferRecord:
+    return TransferRecord(
+        id=transfer.id,
+        status=TransferStatus(transfer.status),
+        amount=transfer.amount,
+        currency=transfer.currency,
+        idempotency_key=transfer.idempotency_key,
+        failure_reason=transfer.failure_reason,
+        external_reference=transfer.external_reference,
+        created_at=transfer.created_at,
+        updated_at=transfer.updated_at,
+    )
+
+
+def _transfer_payload(transfer: Transfer) -> dict:
+    return {
+        "transfer_id": transfer.id,
+        "user_id": transfer.user_id,
+        "source_wallet_id": transfer.source_wallet_id,
+        "target_wallet_id": transfer.target_wallet_id,
+        "status": transfer.status,
+        "amount": str(transfer.amount),
+        "currency": transfer.currency,
+        "idempotency_key": transfer.idempotency_key,
+        "external_reference": transfer.external_reference,
+    }
+
+
 @router.post("/{wallet_id}/transfers", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)
 async def transfer_between_wallets(
     wallet_id: int,
@@ -266,69 +329,119 @@ async def transfer_between_wallets(
 ) -> TransferResponse:
     if wallet_id == payload.target_wallet_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Source and target wallet must differ")
-    async with session.begin():
-        # ensure deterministic lock order to avoid deadlocks
-        wallet_ids = sorted([wallet_id, payload.target_wallet_id])
-        locked: dict[int, Wallet] = {}
-        for wid in wallet_ids:
-            result = await session.execute(
-                select(Wallet).where(Wallet.id == wid, Wallet.owner_user_id == current_user_id).with_for_update()
-            )
-            wallet = result.scalar_one_or_none()
-            if wallet is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
-            locked[wid] = wallet
 
+    transfer_start = perf_counter()
+    failure_exc: HTTPException | None = None
+    async with session.begin():
+        existing_transfer = await session.scalar(
+            select(Transfer).where(Transfer.idempotency_key == payload.idempotency_key)
+        )
+        if existing_transfer is not None:
+            if existing_transfer.user_id != current_user_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Transfer belongs to another user")
+            wallet_transfer_idempotent_total.labels(currency=existing_transfer.currency).inc()
+            locked = await _lock_wallets(
+                session,
+                [existing_transfer.source_wallet_id, existing_transfer.target_wallet_id],
+                current_user_id,
+            )
+            if existing_transfer.status == TransferStatus.failed.value:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=existing_transfer.failure_reason or "Transfer previously failed",
+                )
+            if existing_transfer.status == TransferStatus.pending.value:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transfer is still processing")
+            transfer_response = TransferResponse(
+                transfer=_transfer_record(existing_transfer),
+                source_wallet=_wallet_response(locked[existing_transfer.source_wallet_id]),
+                target_wallet=_wallet_response(locked[existing_transfer.target_wallet_id]),
+            )
+            return transfer_response
+
+        locked = await _lock_wallets(session, [wallet_id, payload.target_wallet_id], current_user_id)
         source = locked[wallet_id]
         target = locked[payload.target_wallet_id]
 
         if source.currency != target.currency or payload.currency != source.currency:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Currency mismatch")
 
-        existing = await session.execute(
-            select(LedgerEntry).where(
-                LedgerEntry.wallet_id == source.id,
-                LedgerEntry.idempotency_key == payload.idempotency_key,
-            ).limit(1)
+        transfer = Transfer(
+            user_id=current_user_id,
+            source_wallet_id=source.id,
+            target_wallet_id=target.id,
+            amount=payload.amount,
+            currency=source.currency,
+            idempotency_key=payload.idempotency_key,
+            external_reference=payload.external_reference,
         )
-        entry = existing.scalar_one_or_none()
-        if entry is not None:
-            await session.refresh(source)
-            await session.refresh(target)
-            return TransferResponse(source_wallet=_wallet_response(source), target_wallet=_wallet_response(target))
+        session.add(transfer)
+        await session.flush()
+        wallet_transfer_created_total.labels(currency=transfer.currency).inc()
+        _record_outbox_event(session, "wallet.transfer.created", _transfer_payload(transfer))
 
         transfer_details = {
             "type": "transfer",
+            "transfer_id": transfer.id,
             "target_wallet_id": target.id,
             "description": payload.description,
         }
         reverse_details = {
             "type": "transfer",
+            "transfer_id": transfer.id,
             "source_wallet_id": source.id,
             "description": payload.description,
         }
 
-        source, _ = await _apply_money_change(
-            session,
-            source.id,
-            EntryType.debit,
-            payload.amount,
-            payload.idempotency_key,
-            transfer_details,
-            current_user_id,
-            risk_metadata=None,
-        )
-        target, _ = await _apply_money_change(
-            session,
-            target.id,
-            EntryType.credit,
-            payload.amount,
-            payload.idempotency_key,
-            reverse_details,
-            current_user_id,
-            risk_metadata=None,
-        )
-    return TransferResponse(source_wallet=_wallet_response(source), target_wallet=_wallet_response(target))
+        debit_key = f"wallet-transfer-debit-{transfer.id}"
+        credit_key = f"wallet-transfer-credit-{transfer.id}"
+
+        try:
+            source, debit_entry = await _apply_money_change(
+                session,
+                source.id,
+                EntryType.debit,
+                payload.amount,
+                debit_key,
+                transfer_details,
+                current_user_id,
+                risk_metadata=None,
+            )
+            target, credit_entry = await _apply_money_change(
+                session,
+                target.id,
+                EntryType.credit,
+                payload.amount,
+                credit_key,
+                reverse_details,
+                current_user_id,
+                risk_metadata=None,
+            )
+        except HTTPException as exc:
+            transfer.status = TransferStatus.failed.value
+            transfer.failure_reason = str(exc.detail) if exc.detail else "Transfer failed"
+            wallet_transfer_failed_total.labels(
+                currency=transfer.currency,
+                reason="insufficient_funds" if exc.status_code == status.HTTP_409_CONFLICT else "validation_error",
+            ).inc()
+            _record_outbox_event(session, "wallet.transfer.failed", _transfer_payload(transfer))
+            failure_exc = exc
+        else:
+            transfer.status = TransferStatus.completed.value
+            transfer.ledger_debit_entry_id = debit_entry.id
+            transfer.ledger_credit_entry_id = credit_entry.id
+            wallet_transfer_completed_total.labels(currency=transfer.currency).inc()
+            wallet_transfer_latency_seconds.observe(perf_counter() - transfer_start)
+            _record_outbox_event(session, "wallet.transfer.completed", _transfer_payload(transfer))
+            response = TransferResponse(
+                transfer=_transfer_record(transfer),
+                source_wallet=_wallet_response(source),
+                target_wallet=_wallet_response(target),
+            )
+
+    if failure_exc:
+        raise failure_exc
+    return response
 
 
 @router.post("/{wallet_id}/holds", response_model=HoldResponse, status_code=status.HTTP_201_CREATED)
@@ -447,3 +560,42 @@ async def list_statements(
     entries: Sequence[LedgerEntry] = result.scalars().all()
     next_cursor = entries[-1].id if entries and len(entries) == limit else None
     return StatementResponse(wallet_id=wallet_id, entries=[_entry_item(e) for e in entries], next_cursor=next_cursor)
+
+
+@router.get("/{wallet_id}/reconciliation", response_model=ReconciliationResponse)
+async def reconcile_wallet(
+    wallet_id: int,
+    session: SessionDep,
+    current_user_id: int = Depends(get_current_user_id),
+) -> ReconciliationResponse:
+    wallet_result = await session.execute(
+        select(Wallet).where(Wallet.id == wallet_id, Wallet.owner_user_id == current_user_id)
+    )
+    wallet = wallet_result.scalar_one_or_none()
+    if wallet is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wallet not found or not owned by user")
+
+    ledger_stmt = select(
+        func.coalesce(
+            func.sum(
+                case(
+                    (LedgerEntry.type == EntryType.credit.value, LedgerEntry.amount),
+                    else_=-LedgerEntry.amount,
+                )
+            ),
+            0,
+        ).label("ledger_balance"),
+        func.count(LedgerEntry.id).label("entry_count"),
+    ).where(LedgerEntry.wallet_id == wallet_id)
+    agg = await session.execute(ledger_stmt)
+    ledger_balance, entry_count = agg.one()
+    delta = ledger_balance - wallet.balance
+    status_text = "balanced" if delta == 0 else "drift_detected"
+    return ReconciliationResponse(
+        wallet_id=wallet_id,
+        stored_balance=wallet.balance,
+        ledger_balance=ledger_balance,
+        delta=delta,
+        entry_count=entry_count,
+        status=status_text,
+    )

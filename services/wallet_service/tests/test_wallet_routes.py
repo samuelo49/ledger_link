@@ -5,12 +5,14 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from services.wallet_service.app.db.base import Base
 from services.wallet_service.app.dependencies import get_current_user_id, get_session
 from services.wallet_service.app.main import create_app
 from services.wallet_service.app import settings as wallet_settings_module
+from services.wallet_service.app.models import Transfer, TransferStatus, OutboxEvent, Wallet
 
 
 def _asgi_client(app):
@@ -28,6 +30,29 @@ async def _seed_balance(client: AsyncClient, wallet_id: int, amount: str, key: s
     payload = {"amount": amount, "idempotency_key": key}
     response = await client.post(f"/api/v1/wallets/{wallet_id}/credit", json=payload)
     assert response.status_code == 200
+
+
+async def _get_transfer_by_key(app, idempotency_key: str) -> Transfer:
+    session_factory = app.state._session_factory
+    async with session_factory() as session:
+        result = await session.execute(select(Transfer).where(Transfer.idempotency_key == idempotency_key))
+        return result.scalar_one()
+
+
+async def _count_outbox_events(app, event_type: str) -> int:
+    session_factory = app.state._session_factory
+    async with session_factory() as session:
+        result = await session.execute(select(OutboxEvent).where(OutboxEvent.event_type == event_type))
+        return len(result.scalars().all())
+
+
+async def _adjust_wallet_balance(app, wallet_id: int, delta: Decimal) -> None:
+    session_factory = app.state._session_factory
+    async with session_factory() as session:
+        wallet = await session.get(Wallet, wallet_id)
+        wallet.balance = wallet.balance + delta
+        session.add(wallet)
+        await session.commit()
 
 
 @pytest_asyncio.fixture()
@@ -61,6 +86,7 @@ async def wallet_test_app(monkeypatch):
     app = create_app()
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user_id] = _override_current_user
+    app.state._session_factory = session_factory
     yield app
 
     await engine.dispose()
@@ -125,13 +151,23 @@ async def test_transfer_between_wallets_is_idempotent(wallet_test_app):
         first = await client.post(f"/api/v1/wallets/{source['id']}/transfers", json=payload)
         assert first.status_code == 201
         data = first.json()
+        assert data["transfer"]["status"] == "completed"
         assert Decimal(str(data["source_wallet"]["balance"])) == Decimal("50.00")
         assert Decimal(str(data["target_wallet"]["balance"])) == Decimal("25.00")
 
         replay = await client.post(f"/api/v1/wallets/{source['id']}/transfers", json=payload)
+        assert replay.status_code == 201
         replay_data = replay.json()
+        assert replay_data["transfer"]["id"] == data["transfer"]["id"]
         assert Decimal(str(replay_data["source_wallet"]["balance"])) == Decimal("50.00")
         assert Decimal(str(replay_data["target_wallet"]["balance"])) == Decimal("25.00")
+
+        transfer_row = await _get_transfer_by_key(wallet_test_app, "transfer-001")
+        assert TransferStatus(transfer_row.status) == TransferStatus.completed
+        created_events = await _count_outbox_events(wallet_test_app, "wallet.transfer.created")
+        completed_events = await _count_outbox_events(wallet_test_app, "wallet.transfer.completed")
+        assert created_events == 1
+        assert completed_events == 1
 
 
 @pytest.mark.asyncio
@@ -206,3 +242,50 @@ async def test_statements_paginate_and_require_ownership(wallet_test_app):
 
         missing = await client.get("/api/v1/wallets/9999/statements")
         assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_transfer_failure_records_state(wallet_test_app):
+    async with _asgi_client(wallet_test_app) as client:
+        source = await _create_wallet(client)
+        target = await _create_wallet(client, allow_additional=True)
+        await _seed_balance(client, source["id"], "10.00", "seed-limited")
+
+        payload = {
+            "target_wallet_id": target["id"],
+            "amount": "25.00",
+            "currency": "USD",
+            "idempotency_key": "transfer-fail-1",
+            "description": "overdraft",
+        }
+        first = await client.post(f"/api/v1/wallets/{source['id']}/transfers", json=payload)
+        assert first.status_code == 409
+        transfer_row = await _get_transfer_by_key(wallet_test_app, "transfer-fail-1")
+        assert TransferStatus(transfer_row.status) == TransferStatus.failed
+        assert "Insufficient funds" in transfer_row.failure_reason
+
+        replay = await client.post(f"/api/v1/wallets/{source['id']}/transfers", json=payload)
+        assert replay.status_code == 409
+        assert "Insufficient funds" in replay.json()["detail"]
+
+        failed_events = await _count_outbox_events(wallet_test_app, "wallet.transfer.failed")
+        assert failed_events == 1
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_detects_drift(wallet_test_app):
+    async with _asgi_client(wallet_test_app) as client:
+        wallet = await _create_wallet(client)
+        wallet_id = wallet["id"]
+        await _seed_balance(client, wallet_id, "40.00", "recon-seed")
+
+        healthy = await client.get(f"/api/v1/wallets/{wallet_id}/reconciliation")
+        assert healthy.status_code == 200
+        assert healthy.json()["status"] == "balanced"
+
+        await _adjust_wallet_balance(wallet_test_app, wallet_id, Decimal("5.00"))
+        drift = await client.get(f"/api/v1/wallets/{wallet_id}/reconciliation")
+        assert drift.status_code == 200
+        body = drift.json()
+        assert body["status"] == "drift_detected"
+        assert Decimal(str(body["delta"])) == Decimal("-5.00")

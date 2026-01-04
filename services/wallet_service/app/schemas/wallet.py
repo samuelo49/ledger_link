@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
 
-from services.wallet_service.app.models import EntryType
+from services.wallet_service.app.models import EntryType, TransferStatus
 
 
 class WalletCreate(BaseModel):
@@ -56,9 +56,23 @@ class TransferRequest(BaseModel):
     currency: str = Field(..., min_length=3, max_length=3)
     idempotency_key: str = Field(..., max_length=64)
     description: str | None = None
+    external_reference: str | None = Field(None, max_length=64)
+
+
+class TransferRecord(BaseModel):
+    id: int
+    status: TransferStatus
+    amount: Decimal
+    currency: str
+    idempotency_key: str
+    failure_reason: str | None = None
+    external_reference: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TransferResponse(BaseModel):
+    transfer: TransferRecord
     source_wallet: WalletResponse
     target_wallet: WalletResponse
 
@@ -98,3 +112,12 @@ class StatementResponse(BaseModel):
     wallet_id: int
     entries: list[LedgerEntryItem]
     next_cursor: int | None = None
+
+
+class ReconciliationResponse(BaseModel):
+    wallet_id: int
+    stored_balance: Decimal
+    ledger_balance: Decimal
+    delta: Decimal
+    entry_count: int
+    status: str
